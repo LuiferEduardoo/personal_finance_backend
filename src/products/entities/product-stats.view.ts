@@ -1,6 +1,8 @@
+import { Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
 import { ViewColumn, ViewEntity } from 'typeorm';
 
 // duración y costo promedio por producto + fecha estimada de agotamiento
+@ObjectType()
 @ViewEntity({
   name: 'product_stats',
   expression: `
@@ -23,33 +25,46 @@ import { ViewColumn, ViewEntity } from 'typeorm';
   `,
 })
 export class ProductStatsView {
+  @Field(() => ID)
   @ViewColumn({ name: 'product_id' })
   productId: string;
 
+  @Field(() => ID)
   @ViewColumn({ name: 'user_id' })
   userId: string;
 
+  @Field()
   @ViewColumn()
   name: string;
 
+  @Field(() => Int)
   @ViewColumn({ name: 'closed_cycles' })
   closedCycles: string;
 
+  @Field(() => Float, { nullable: true })
   @ViewColumn({ name: 'avg_days_lasted' })
   avgDaysLasted: string | null;
 
+  @Field(() => Int, { nullable: true })
   @ViewColumn({ name: 'min_days_lasted' })
   minDaysLasted: number | null;
 
+  @Field(() => Int, { nullable: true })
   @ViewColumn({ name: 'max_days_lasted' })
   maxDaysLasted: number | null;
 
+  @Field(() => String, { nullable: true })
   @ViewColumn({ name: 'last_purchased_on' })
   lastPurchasedOn: string | null;
 
+  @Field(() => Float, { nullable: true })
   @ViewColumn({ name: 'avg_unit_price' })
   avgUnitPrice: string | null;
 
+  @Field(() => String, {
+    nullable: true,
+    description: 'Fecha estimada de agotamiento del ciclo abierto',
+  })
   @ViewColumn({ name: 'estimated_depletion_date' })
   estimatedDepletionDate: string | null;
 }
