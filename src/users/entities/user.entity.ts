@@ -14,6 +14,10 @@ import { RefreshToken } from '../../auth/entities/refresh-token.entity';
 import { Category } from '../../categories/entities/category.entity';
 import { InstallmentPlan } from '../../installments/entities/installment-plan.entity';
 import { PaymentMethod } from '../../payment-methods/entities/payment-method.entity';
+import { ConsumptionCycle } from '../../products/entities/consumption-cycle.entity';
+import { ProductPurchase } from '../../products/entities/product-purchase.entity';
+import { Product } from '../../products/entities/product.entity';
+import { ShoppingList } from '../../shopping-lists/entities/shopping-list.entity';
 import { Tag } from '../../tags/entities/tag.entity';
 import { Expense } from '../../transactions/entities/expense.entity';
 import { Income } from '../../transactions/entities/income.entity';
@@ -68,6 +72,18 @@ export class User {
 
   @OneToMany(() => Tag, (tag) => tag.user)
   tags: Tag[];
+
+  @OneToMany(() => Product, (product) => product.user)
+  products: Product[];
+
+  @OneToMany(() => ProductPurchase, (purchase) => purchase.user)
+  productPurchases: ProductPurchase[];
+
+  @OneToMany(() => ConsumptionCycle, (cycle) => cycle.user)
+  consumptionCycles: ConsumptionCycle[];
+
+  @OneToMany(() => ShoppingList, (list) => list.user)
+  shoppingLists: ShoppingList[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
