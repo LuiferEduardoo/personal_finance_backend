@@ -110,7 +110,10 @@ export class AuthService {
   }
 
   async findUserById(id: string): Promise<User> {
-    const user = await this.usersRepository.findOne({ where: { id } });
+    const user = await this.usersRepository.findOne({
+      where: { id },
+      relations: { authentication: true },
+    });
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }

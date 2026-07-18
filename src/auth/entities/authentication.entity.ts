@@ -1,3 +1,4 @@
+import { Field, ObjectType, registerEnumType } from '@nestjs/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -15,6 +16,9 @@ export enum AuthProvider {
   GOOGLE = 'google',
 }
 
+registerEnumType(AuthProvider, { name: 'AuthProvider' });
+
+@ObjectType()
 @Entity('authentications')
 export class Authentication {
   @PrimaryGeneratedColumn('uuid')
@@ -33,6 +37,7 @@ export class Authentication {
   @Column({ type: 'varchar', nullable: true, select: false })
   password: string | null;
 
+  @Field(() => AuthProvider)
   @Column({
     type: 'enum',
     enum: AuthProvider,
@@ -44,6 +49,7 @@ export class Authentication {
   @Column({ name: 'google_id', type: 'varchar', nullable: true })
   googleId: string | null;
 
+  @Field()
   @Column({ name: 'email_verified', default: false })
   emailVerified: boolean;
 

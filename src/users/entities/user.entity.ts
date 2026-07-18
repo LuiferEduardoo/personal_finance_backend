@@ -59,6 +59,7 @@ export class User {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  @Field(() => Authentication, { nullable: true })
   @OneToOne(() => Authentication, (authentication) => authentication.user)
   authentication: Authentication;
 
