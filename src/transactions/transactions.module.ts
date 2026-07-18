@@ -3,9 +3,19 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Expense } from './entities/expense.entity';
 import { Income } from './entities/income.entity';
 import { TransactionView } from './entities/transaction.view';
+import { ExpensesResolver } from './expenses.resolver';
+import { ExpensesService } from './expenses.service';
+import { IncomesResolver } from './incomes.resolver';
+import { IncomesService } from './incomes.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Expense, Income, TransactionView])],
-  exports: [TypeOrmModule],
+  providers: [
+    ExpensesService,
+    ExpensesResolver,
+    IncomesService,
+    IncomesResolver,
+  ],
+  exports: [TypeOrmModule, ExpensesService, IncomesService],
 })
 export class TransactionsModule {}
