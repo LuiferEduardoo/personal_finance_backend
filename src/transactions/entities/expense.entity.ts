@@ -1,3 +1,4 @@
+import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
 import {
   Check,
   Column,
@@ -20,10 +21,12 @@ import { PaymentMethod } from '../../payment-methods/entities/payment-method.ent
 import { Tag } from '../../tags/entities/tag.entity';
 import { User } from '../../users/entities/user.entity';
 
+@ObjectType()
 @Entity('expenses')
 @Check('expenses_amount_check', '"amount" > 0')
 @Index('idx_expenses_user_date', ['userId', 'occurredOn'])
 export class Expense {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -31,13 +34,16 @@ export class Expense {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
+  @Field(() => ID)
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
+  @Field(() => Category, { nullable: true })
   @ManyToOne(() => Category, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'category_id' })
   category: Category | null;
 
+  @Field(() => ID, { nullable: true })
   @Index('idx_expenses_category')
   @Column({ name: 'category_id', type: 'uuid', nullable: true })
   categoryId: string | null;
@@ -46,6 +52,7 @@ export class Expense {
   @JoinColumn({ name: 'payment_method_id' })
   paymentMethod: PaymentMethod | null;
 
+  @Field(() => ID, { nullable: true })
   @Index('idx_expenses_payment_method')
   @Column({ name: 'payment_method_id', type: 'uuid', nullable: true })
   paymentMethodId: string | null;
@@ -64,9 +71,11 @@ export class Expense {
   @Column({ name: 'installment_id', type: 'uuid', nullable: true })
   installmentId: string | null;
 
+  @Field()
   @Column({ type: 'text' })
   description: string;
 
+  @Field(() => Float)
   @Column({
     type: 'numeric',
     precision: 14,
@@ -75,9 +84,11 @@ export class Expense {
   })
   amount: number;
 
+  @Field()
   @Column({ type: 'char', length: 3, default: 'COP' })
   currency: string;
 
+  @Field(() => Float)
   @Column({
     name: 'exchange_rate',
     type: 'numeric',
@@ -88,18 +99,23 @@ export class Expense {
   })
   exchangeRate: number;
 
+  @Field()
   @Column({ name: 'occurred_on', type: 'date' })
   occurredOn: string;
 
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   merchant: string | null;
 
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  @Field(() => String, { nullable: true })
   @Column({ name: 'receipt_url', type: 'text', nullable: true })
   receiptUrl: string | null;
 
+  @Field(() => Recurrence)
   @Column({
     type: 'enum',
     enum: Recurrence,
@@ -116,9 +132,11 @@ export class Expense {
   })
   tags: Tag[];
 
+  @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
+  @Field()
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }
