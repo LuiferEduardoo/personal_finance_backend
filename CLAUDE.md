@@ -39,6 +39,14 @@ Backend de finanzas personales. Este repositorio es **solo el backend** (API); n
 - `npm run test` — tests unitarios.
 - `npm run test:e2e` — tests end-to-end.
 - `npm run lint` — linter.
+- `npm run migration:generate -- src/migrations/<Nombre>` — generar una migración comparando entidades vs. base de datos.
+- `npm run migration:run` — aplicar migraciones pendientes.
+- `npm run migration:revert` — revertir la última migración.
+
+## Base de datos
+
+- El esquema se maneja **solo con migraciones** (`synchronize` está desactivado). Tras cambiar una entidad, generar y correr la migración.
+- Las migraciones viven en `src/migrations/` y el DataSource del CLI en `src/config/data-source.ts`.
 
 ## Notas
 

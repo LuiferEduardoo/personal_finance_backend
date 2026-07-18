@@ -11,6 +11,6 @@ export const databaseConfig = (
   password: configService.get<string>('DB_PASSWORD', ''),
   database: configService.get<string>('DB_NAME', 'personal_finance'),
   autoLoadEntities: true,
-  // synchronize solo en desarrollo: en producción se usan migraciones
-  synchronize: configService.get<string>('NODE_ENV') !== 'production',
+  // el esquema se maneja con migraciones (npm run migration:run)
+  synchronize: false,
 });
