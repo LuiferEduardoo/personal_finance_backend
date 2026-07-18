@@ -1,3 +1,4 @@
+import { Field, ID, ObjectType } from '@nestjs/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -22,30 +23,39 @@ import { Tag } from '../../tags/entities/tag.entity';
 import { Expense } from '../../transactions/entities/expense.entity';
 import { Income } from '../../transactions/entities/income.entity';
 
+@ObjectType()
 @Entity('users')
 export class User {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Field()
   @Index({ unique: true })
   @Column()
   email: string;
 
+  @Field()
   @Column({ name: 'first_name' })
   firstName: string;
 
+  @Field(() => String, { nullable: true })
   @Column({ name: 'last_name', type: 'varchar', nullable: true })
   lastName: string | null;
 
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', nullable: true })
   avatar: string | null;
 
+  @Field()
   @Column({ name: 'base_currency', type: 'char', length: 3, default: 'COP' })
   baseCurrency: string;
 
+  @Field()
   @Column({ type: 'text', default: 'America/Bogota' })
   timezone: string;
 
+  @Field()
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
