@@ -9,6 +9,6 @@ export default new DataSource({
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? '',
   database: process.env.DB_NAME ?? 'personal_finance',
-  entities: ['src/**/*.entity.ts'],
+  entities: ['src/**/*.entity.ts', 'src/**/*.view.ts'],
   migrations: ['src/migrations/*.ts'],
 });

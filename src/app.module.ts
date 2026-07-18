@@ -4,7 +4,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { CategoriesModule } from './categories/categories.module';
 import { databaseConfig } from './config/database.config';
+import { InstallmentsModule } from './installments/installments.module';
+import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
+import { TagsModule } from './tags/tags.module';
+import { TransactionsModule } from './transactions/transactions.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -18,6 +23,11 @@ import { UsersModule } from './users/users.module';
     }),
     UsersModule,
     AuthModule,
+    CategoriesModule,
+    PaymentMethodsModule,
+    InstallmentsModule,
+    TransactionsModule,
+    TagsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
