@@ -1,3 +1,5 @@
+import { registerEnumType } from '@nestjs/graphql';
+
 export enum Recurrence {
   ONCE = 'once',
   DAILY = 'daily',
@@ -9,3 +11,5 @@ export enum Recurrence {
   SEMIANNUAL = 'semiannual',
   ANNUAL = 'annual',
 }
+
+registerEnumType(Recurrence, { name: 'Recurrence' });
