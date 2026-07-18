@@ -7,6 +7,7 @@ Backend de finanzas personales. Este repositorio es **solo el backend** (API); n
 - **Framework**: NestJS (Node.js + TypeScript)
 - **Base de datos**: PostgreSQL
 - **ORM**: TypeORM (`@nestjs/typeorm`)
+- **API**: GraphQL con Apollo (`@nestjs/graphql`, *code-first*): el esquema se genera desde los decoradores en `src/schema.gql` (archivo generado, ignorado por git). Endpoint en `/graphql`, playground habilitado fuera de producción.
 - **Autenticación**: JWT + OAuth con Google
 - **Testing**: Jest (unitarios y e2e)
 - **Gestor de paquetes**: npm
