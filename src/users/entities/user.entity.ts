@@ -11,6 +11,12 @@ import {
 } from 'typeorm';
 import { Authentication } from '../../auth/entities/authentication.entity';
 import { RefreshToken } from '../../auth/entities/refresh-token.entity';
+import { Category } from '../../categories/entities/category.entity';
+import { InstallmentPlan } from '../../installments/entities/installment-plan.entity';
+import { PaymentMethod } from '../../payment-methods/entities/payment-method.entity';
+import { Tag } from '../../tags/entities/tag.entity';
+import { Expense } from '../../transactions/entities/expense.entity';
+import { Income } from '../../transactions/entities/income.entity';
 
 @Entity('users')
 export class User {
@@ -30,6 +36,12 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   avatar: string | null;
 
+  @Column({ name: 'base_currency', type: 'char', length: 3, default: 'COP' })
+  baseCurrency: string;
+
+  @Column({ type: 'text', default: 'America/Bogota' })
+  timezone: string;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
@@ -38,6 +50,24 @@ export class User {
 
   @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.user)
   refreshTokens: RefreshToken[];
+
+  @OneToMany(() => Category, (category) => category.user)
+  categories: Category[];
+
+  @OneToMany(() => PaymentMethod, (paymentMethod) => paymentMethod.user)
+  paymentMethods: PaymentMethod[];
+
+  @OneToMany(() => InstallmentPlan, (plan) => plan.user)
+  installmentPlans: InstallmentPlan[];
+
+  @OneToMany(() => Expense, (expense) => expense.user)
+  expenses: Expense[];
+
+  @OneToMany(() => Income, (income) => income.user)
+  incomes: Income[];
+
+  @OneToMany(() => Tag, (tag) => tag.user)
+  tags: Tag[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
