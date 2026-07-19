@@ -36,7 +36,8 @@ export class ShoppingListItem {
   @Column({ name: 'list_id', type: 'uuid' })
   listId: string;
 
-  @ManyToOne(() => Product, { nullable: true, onDelete: 'SET NULL' })
+  // CASCADE: SET NULL violaría el check list_item_has_ref cuando free_text es null
+  @ManyToOne(() => Product, { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'product_id' })
   product: Product | null;
 
