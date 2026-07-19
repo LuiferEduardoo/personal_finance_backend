@@ -1,5 +1,13 @@
 import { UseGuards } from '@nestjs/common';
-import { Args, ID, Mutation, Query, Resolver } from '@nestjs/graphql';
+import {
+  Args,
+  ID,
+  Mutation,
+  Parent,
+  Query,
+  ResolveField,
+  Resolver,
+} from '@nestjs/graphql';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
@@ -8,11 +16,23 @@ import { UpdateProductInput } from './dto/update-product.input';
 import { ProductStatsView } from './entities/product-stats.view';
 import { Product } from './entities/product.entity';
 import { ProductsService } from './products.service';
+import { PurchasesService } from './purchases.service';
 
 @Resolver(() => Product)
 @UseGuards(GqlAuthGuard)
 export class ProductsResolver {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly purchasesService: PurchasesService,
+  ) {}
+
+  @ResolveField(() => Boolean, {
+    description:
+      '"hay producto": tiene un ciclo de consumo abierto (comprado y sin agotar)',
+  })
+  inStock(@Parent() product: Product): Promise<boolean> {
+    return this.purchasesService.hasOpenCycle(product.id);
+  }
 
   @Query(() => [Product], { description: 'Catálogo de productos del usuario' })
   products(

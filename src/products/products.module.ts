@@ -6,6 +6,9 @@ import { ProductStatsView } from './entities/product-stats.view';
 import { Product } from './entities/product.entity';
 import { ProductsResolver } from './products.resolver';
 import { ProductsService } from './products.service';
+import { PurchasesResolver } from './purchases.resolver';
+import { PurchasesService } from './purchases.service';
+import { ShoppingListsModule } from '../shopping-lists/shopping-lists.module';
 
 @Module({
   imports: [
@@ -15,8 +18,14 @@ import { ProductsService } from './products.service';
       ConsumptionCycle,
       ProductStatsView,
     ]),
+    ShoppingListsModule,
   ],
-  providers: [ProductsService, ProductsResolver],
-  exports: [TypeOrmModule, ProductsService],
+  providers: [
+    ProductsService,
+    ProductsResolver,
+    PurchasesService,
+    PurchasesResolver,
+  ],
+  exports: [TypeOrmModule, ProductsService, PurchasesService],
 })
 export class ProductsModule {}

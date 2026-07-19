@@ -1,3 +1,4 @@
+import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
 import {
   Check,
   Column,
@@ -14,6 +15,7 @@ import { User } from '../../users/entities/user.entity';
 import { Product } from './product.entity';
 
 // línea de compra: un gasto (ej. mercado) puede tener muchas compras de productos
+@ObjectType()
 @Entity('product_purchases')
 @Check('product_purchases_quantity_check', '"quantity" > 0')
 @Check(
@@ -22,6 +24,7 @@ import { Product } from './product.entity';
 )
 @Index('idx_product_purchases_product', ['productId', 'purchasedOn'])
 export class ProductPurchase {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -34,10 +37,12 @@ export class ProductPurchase {
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
+  @Field(() => Product)
   @ManyToOne(() => Product, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'product_id' })
   product: Product;
 
+  @Field(() => ID)
   @Column({ name: 'product_id', type: 'uuid' })
   productId: string;
 
@@ -46,10 +51,12 @@ export class ProductPurchase {
   @JoinColumn({ name: 'expense_id' })
   expense: Expense | null;
 
+  @Field(() => ID, { nullable: true })
   @Index('idx_product_purchases_expense')
   @Column({ name: 'expense_id', type: 'uuid', nullable: true })
   expenseId: string | null;
 
+  @Field(() => Float)
   @Column({
     type: 'numeric',
     precision: 12,
@@ -59,6 +66,7 @@ export class ProductPurchase {
   })
   quantity: number;
 
+  @Field(() => Float, { nullable: true })
   @Column({
     name: 'unit_price',
     type: 'numeric',
@@ -69,6 +77,7 @@ export class ProductPurchase {
   })
   unitPrice: number | null;
 
+  @Field(() => Float, { nullable: true })
   @Column({
     name: 'total_price',
     type: 'numeric',
@@ -81,15 +90,19 @@ export class ProductPurchase {
   })
   totalPrice: number | null;
 
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   store: string | null;
 
+  @Field()
   @Column({ name: 'purchased_on', type: 'date' })
   purchasedOn: string;
 
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

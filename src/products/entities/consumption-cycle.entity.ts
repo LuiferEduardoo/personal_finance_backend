@@ -1,3 +1,4 @@
+import { Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
 import {
   Check,
   Column,
@@ -14,6 +15,7 @@ import { ProductPurchase } from './product-purchase.entity';
 import { Product } from './product.entity';
 
 // ciclo de consumo: desde "lo empecé a usar" hasta "se acabó"
+@ObjectType()
 @Entity('consumption_cycles')
 @Check('cycles_date_order', '"depleted_on" IS NULL OR "depleted_on" >= "started_on"')
 @Check('consumption_cycles_quantity_check', '"quantity" > 0')
@@ -23,6 +25,7 @@ import { Product } from './product.entity';
   where: '"depleted_on" IS NULL',
 })
 export class ConsumptionCycle {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -35,10 +38,12 @@ export class ConsumptionCycle {
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
+  @Field(() => Product)
   @ManyToOne(() => Product, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'product_id' })
   product: Product;
 
+  @Field(() => ID)
   @Column({ name: 'product_id', type: 'uuid' })
   productId: string;
 
@@ -46,16 +51,20 @@ export class ConsumptionCycle {
   @JoinColumn({ name: 'purchase_id' })
   purchase: ProductPurchase | null;
 
+  @Field(() => ID, { nullable: true })
   @Column({ name: 'purchase_id', type: 'uuid', nullable: true })
   purchaseId: string | null;
 
+  @Field()
   @Column({ name: 'started_on', type: 'date' })
   startedOn: string;
 
   // null = todavía en uso
+  @Field(() => String, { nullable: true })
   @Column({ name: 'depleted_on', type: 'date', nullable: true })
   depletedOn: string | null;
 
+  @Field(() => Int, { nullable: true })
   @Column({
     name: 'days_lasted',
     type: 'integer',
@@ -65,6 +74,7 @@ export class ConsumptionCycle {
   })
   daysLasted: number | null;
 
+  @Field(() => Float)
   @Column({
     type: 'numeric',
     precision: 12,
@@ -74,9 +84,11 @@ export class ConsumptionCycle {
   })
   quantity: number;
 
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
