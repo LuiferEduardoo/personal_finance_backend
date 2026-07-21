@@ -15,6 +15,7 @@ En desarrollo está disponible el playground de Apollo abriendo esa misma URL en
 - [Categorías](#categorías)
 - [Gastos](#gastos)
 - [Ingresos](#ingresos)
+- [Artículos](#artículos)
 - [Inflación](#inflación)
 - [Productos](#productos)
 - [Compras y ciclos de consumo](#compras-y-ciclos-de-consumo)
@@ -230,13 +231,21 @@ mutation {
     currency: "COP"
     exchangeRate: 1
     recurrence: ONCE
+    quantity: 10
+    newArticle: { name: "Pan", type: PRODUCT, categoryId: "<id>" }
   }) {
-    id description amount category { name }
+    id description amount unitPrice quantity category { name } article { id name type }
   }
 }
 ```
 
 Obligatorios: `userId`, `description`, `amount`, `occurredOn`. `amount` debe ser mayor que 0.
+
+**Asociación con un artículo** (opcional): el gasto puede vincularse a un artículo con una `quantity`; de ahí sale el `unitPrice` (`amount / quantity`) que alimenta la inflación real (ver [Inflación](#inflación)). Se usa **uno** de:
+- `articleId`: vincular un artículo ya existente del catálogo.
+- `newArticle`: crear el artículo (con su `type`: `PRODUCT` / `SERVICE` / `OTHER`) en el mismo gasto.
+
+Enviar ambos da `BAD_REQUEST`. Si el artículo es **tipo producto**, el gasto se integra con el inventario: crea/vincula el `product` (aparece en `products`), registra la compra y **reabre el ciclo de consumo** (`inStock: true`) si estaba agotado — ver [Compras y ciclos de consumo](#compras-y-ciclos-de-consumo).
 
 ### `updateExpense` / `removeExpense`
 
@@ -275,7 +284,54 @@ También existen `income(id)`, `updateIncome(input)` y `removeIncome(id)`.
 
 ---
 
+## Artículos
+
+Un **artículo** es algo que el usuario compra repetidamente: un producto, un servicio, etc. Es el concepto general del que un `product` (inventario) es la ficha física. Los gastos se asocian a artículos y de ahí se calcula la inflación real. Todos los endpoints son 🔒 y operan sobre los artículos del usuario del token.
+
+### 🔒 `articles` — listar el catálogo
+
+```graphql
+query {
+  articles(search: "pan", type: PRODUCT, includeInactive: false) {
+    id name type unit brand isActive category { name }
+  }
+}
+```
+
+| Argumento | Tipo | Descripción |
+| --- | --- | --- |
+| `search` | `String` | Búsqueda parcial por nombre |
+| `type` | `ArticleType` | `PRODUCT` / `SERVICE` / `OTHER` |
+| `includeInactive` | `Boolean` | Incluir inactivos (default `false`) |
+
+### 🔒 `article` — obtener uno
+
+```graphql
+query { article(id: "<id>") { id name type } }
+```
+
+### 🔒 `createArticle` / `updateArticle` / `removeArticle`
+
+```graphql
+mutation {
+  createArticle(input: { name: "Netflix", type: SERVICE, notes: "plan familiar" }) {
+    id name type
+  }
+}
+mutation { updateArticle(input: { id: "<id>", brand: "Bimbo", isActive: false }) { id brand } }
+mutation { removeArticle(id: "<id>") }
+```
+
+Los artículos también pueden crearse **desde un gasto** con `newArticle` en `createExpense`.
+
+---
+
 ## Inflación
+
+Hay **dos** métricas de inflación, y no deben confundirse:
+
+- **`expenseInflation`** — variación del **gasto total** por mes. Si compro 10 panes un mes y 50 el siguiente, sube mucho aunque el precio no cambie.
+- **`articleInflation`** — **inflación real**: índice de precios sobre el **precio unitario** de los artículos. Aísla el cambio de precio del de cantidad (el ejemplo del pan da 10%, no 450%).
 
 ### 🔒 `expenseInflation` — inflación personal
 
@@ -310,6 +366,40 @@ Filtros (`InflationFilterInput`): `from` y `to` en formato `YYYY-MM`, y `categor
 - Los meses **sin gastos no aparecen** en la serie, y las variaciones que no tienen periodo de comparación devuelven `null` en lugar de un porcentaje inventado.
 - Al usar `from`, el primer mes de la ventana **sí** calcula sus variaciones mirando meses anteriores al filtro.
 - Mide la variación del **gasto total**, que se mueve tanto por precios como por cantidad consumida.
+
+### 🔒 `articleInflation` — inflación real (índice de precios)
+
+Índice de precios de **Laspeyres** sobre los artículos comprados (usa `unitPrice = amount / quantity` de cada gasto asociado a un artículo). Solo cuenta el cambio de precio: cada artículo pondera por su cantidad del periodo base, así que comprar más o menos unidades no altera el índice.
+
+```graphql
+query {
+  articleInflation(filter: { from: "2026-01", to: "2026-07", categoryId: "<id>", type: PRODUCT }) {
+    latestMonthlyRate
+    latestAnnualRate
+    averageMonthlyRate
+    points { period monthlyRate annualRate basketSize }
+    articles { articleId name latestMonthlyRate points { period avgUnitPrice quantity monthlyRate } }
+    categories { categoryId categoryName latestMonthlyRate points { period monthlyRate } }
+  }
+}
+```
+
+| Campo | Descripción |
+| --- | --- |
+| `points` | Índice **agregado** sobre todos los artículos (mensual y anual por mes) |
+| `points[].basketSize` | Nº de artículos comparables en el mes (canasta) |
+| `articles` | Desglose por artículo: precio unitario promedio, cantidad y variación |
+| `categories` | Desglose por categoría (índice de Laspeyres por categoría) |
+| `latestMonthlyRate` / `latestAnnualRate` | Del último periodo del índice agregado |
+| `averageMonthlyRate` | Promedio de las inflaciones mensuales del índice agregado |
+
+Filtros (`ArticleInflationFilterInput`): `from`/`to` (`YYYY-MM`), `articleId` (un solo artículo), `categoryId` (incluye subcategorías) y `type`.
+
+**Detalles del cálculo:**
+
+- **Índice de Laspeyres**: para el mes t, `Σ(precio_t · cantidad_base) / Σ(precio_base · cantidad_base) - 1`, con las cantidades del periodo base (t-1 para mensual, t-12 para anual). Ej.: pan de $2000 a $2200 con cantidades 10→50 → **10%** (no 80% ni 450%).
+- **Por categoría**: cada artículo aporta a su categoría y, con roll-up, a la categoría padre (la inflación de "Alimentación" incluye la de "Pan"). Los artículos sin categoría van a un bucket con `categoryId: null`.
+- Un artículo solo entra en la comparación de un mes si tiene precio en el mes actual **y** en el periodo base.
 
 ---
 
@@ -495,6 +585,10 @@ query { health }
 ### `Recurrence`
 
 `ONCE` · `DAILY` · `WEEKLY` · `BIWEEKLY` · `MONTHLY` · `BIMONTHLY` · `QUARTERLY` · `SEMIANNUAL` · `ANNUAL`
+
+### `ArticleType`
+
+`PRODUCT` · `SERVICE` · `OTHER`
 
 ### `UnitOfMeasure`
 

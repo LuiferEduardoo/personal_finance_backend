@@ -14,9 +14,9 @@ Backend de finanzas personales. Este repositorio es **solo el backend** (API); n
 
 ## Funcionalidades del proyecto
 
-1. **Control de gastos**: registro de gastos categorizados (categorías, subcategorías, etc.).
-2. **Inflación**: cálculo de inflación mensual y anual sobre los gastos registrados.
-3. **Inventario de productos**: listar cuándo un producto se acaba y agregarlo automáticamente al inventario cuando se compra de nuevo.
+1. **Control de gastos**: registro de gastos categorizados (categorías, subcategorías, etc.). Cada gasto puede asociarse a un **artículo** (producto, servicio, etc.) con una cantidad.
+2. **Inflación**: dos métricas distintas — `expenseInflation` (variación del gasto total, mensual/anual) e `articleInflation` (**inflación real**: índice de precios de Laspeyres sobre el precio unitario de los artículos, aislando el cambio de precio del de cantidad; con desglose por artículo y por categoría).
+3. **Inventario de productos**: listar cuándo un producto se acaba y agregarlo automáticamente al inventario cuando se compra de nuevo. Un gasto de un artículo **tipo producto** entra al inventario: crea/vincula el producto, registra la compra y reabre el ciclo de consumo ("hay").
 4. **Análisis de facturas por imagen**: extraer los datos de una factura a partir de una imagen.
 5. **Integración con correo electrónico**: conectar con el correo del usuario para analizar los correos y detectar automáticamente cuándo llega una factura.
 6. **Registro de inversiones**: registro y seguimiento de las inversiones del usuario.
