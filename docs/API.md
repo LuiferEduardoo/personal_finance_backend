@@ -405,7 +405,7 @@ Filtros (`ArticleInflationFilterInput`): `from`/`to` (`YYYY-MM`), `articleId` (u
 
 ## Productos
 
-Catálogo de cosas que compras repetidamente. Todos los endpoints son 🔒 y operan sobre los productos del usuario del token.
+Un **producto** es simplemente un **artículo `type: PRODUCT`** (con inventario). No hay entidad ni tipo GraphQL `Product`: estos endpoints devuelven `Article`. Todos son 🔒 y operan sobre los artículos del usuario del token. Los productos **no se crean aquí** — nacen al registrar un gasto con un artículo tipo producto (ver [Gastos](#gastos)).
 
 ### 🔒 `products` — listar catálogo
 
@@ -423,7 +423,7 @@ query {
 | `search` | `String` | Búsqueda parcial por nombre (case-insensitive) |
 | `includeInactive` | `Boolean` | Incluir productos desactivados (default `false`) |
 
-El campo **`inStock`** indica si el producto tiene un ciclo de consumo abierto, es decir: *"hay shampoo"*.
+Devuelve solo artículos `type = PRODUCT`. El campo **`inStock`** indica si el producto tiene un ciclo de consumo abierto, es decir: *"hay shampoo"*.
 
 ### 🔒 `product` — obtener uno
 
@@ -431,38 +431,32 @@ El campo **`inStock`** indica si el producto tiene un ciclo de consumo abierto, 
 query { product(id: "<id>") { id name inStock } }
 ```
 
-### 🔒 `createProduct` — agregar al catálogo
+### 🔒 `updateProduct` / `removeProduct`
+
+Editan/eliminan el artículo subyacente y devuelven `Article`.
 
 ```graphql
 mutation {
-  createProduct(input: {
-    name: "Shampoo Head & Shoulders"
-    brand: "P&G"
+  updateProduct(input: {
+    id: "<id>"
+    barcode: "7702006547891"
     packageSize: 400
     unit: MILLILITER
-    barcode: "7702006547891"
-    categoryId: "<id>"
     isConsumable: true
-    notes: "comprar en oferta"
-  }) { id name unit }
+    isActive: false
+  }) { id name barcode }
 }
+mutation { removeProduct(id: "<id>") }
 ```
 
 `isConsumable: false` marca bienes durables, que no llevan ciclo de agotamiento.
-
-### 🔒 `updateProduct` / `removeProduct`
-
-```graphql
-mutation { updateProduct(input: { id: "<id>", brand: "H&S", isActive: false }) { id brand } }
-mutation { removeProduct(id: "<id>") }
-```
 
 ### 🔒 `productStats` — estadísticas y predicción
 
 ```graphql
 query {
   productStats {
-    productId name
+    articleId name
     closedCycles
     avgDaysLasted minDaysLasted maxDaysLasted
     avgUnitPrice lastPurchasedOn
@@ -480,89 +474,91 @@ query {
 El flujo que conecta productos con el inventario:
 
 ```
-registerProductPurchase → abre ciclo de consumo → inStock: true
-markProductDepleted     → cierra el ciclo + agrega a la lista de compras → inStock: false
-registerProductPurchase → abre ciclo nuevo + marca el ítem como comprado → inStock: true
+gasto (artículo tipo producto) → abre ciclo de consumo → inStock: true
+markProductDepleted            → cierra el ciclo + agrega a la lista de compras → inStock: false
+gasto del mismo artículo       → abre ciclo nuevo + marca el ítem como comprado → inStock: true
 ```
+
+> El artículo tipo producto normalmente entra al inventario al registrar un **gasto**; `registerProductPurchase` permite además registrar una compra manual.
 
 ### 🔒 `registerProductPurchase` — registrar una compra
 
-Con un producto **ya existente**:
+Registra una compra manualmente (aparte del flujo de gastos), sobre un artículo. Con un artículo **ya existente**:
 
 ```graphql
 mutation {
   registerProductPurchase(input: {
-    productId: "<id>"
+    articleId: "<id>"
     quantity: 1
     unitPrice: 26500
     store: "D1"
     purchasedOn: "2026-07-18"
     expenseId: "<idDelGastoDelMercado>"
   }) {
-    id totalPrice product { name inStock }
+    id totalPrice article { name inStock }
   }
 }
 ```
 
-Creando el producto **en la misma compra** (cuando aún no está en el catálogo):
+Creando el artículo **en la misma compra** (cuando aún no está en el catálogo):
 
 ```graphql
 mutation {
   registerProductPurchase(input: {
-    newProduct: { name: "Shampoo", brand: "H&S", packageSize: 400, unit: MILLILITER }
+    newArticle: { name: "Shampoo", type: PRODUCT, brand: "H&S", packageSize: 400, unit: MILLILITER }
     unitPrice: 25000
     store: "Éxito"
     purchasedOn: "2026-07-10"
   }) {
-    id product { id name }
+    id article { id name }
   }
 }
 ```
 
 Efectos automáticos al registrar la compra:
 
-1. Si el producto es consumible y **no** tiene ciclo abierto, se abre uno → `inStock: true`.
-2. Los ítems **pendientes** de la lista de compras para ese producto pasan a `purchased` y quedan vinculados a la compra.
+1. Si el artículo es consumible y **no** tiene ciclo abierto, se abre uno → `inStock: true`.
+2. Los ítems **pendientes** de la lista de compras para ese artículo pasan a `purchased` y quedan vinculados a la compra.
 3. `totalPrice` se calcula solo (`unitPrice * quantity`).
 
-Debe enviarse `productId` **o** `newProduct`, nunca ambos ni ninguno (`BAD_REQUEST`).
+Debe enviarse `articleId` **o** `newArticle`, nunca ambos ni ninguno (`BAD_REQUEST`).
 
 ### 🔒 `markProductDepleted` — "se acabó"
 
 ```graphql
 mutation {
-  markProductDepleted(productId: "<id>", depletedOn: "2026-07-17") {
+  markProductDepleted(articleId: "<id>", depletedOn: "2026-07-17") {
     id name inStock
   }
 }
 ```
 
-Cierra el ciclo abierto (calculando `daysLasted`) y **agrega el producto a la lista de compras** marcado como `autoAdded`, sin duplicar si ya estaba pendiente; si el usuario no tiene lista activa, se crea una. `depletedOn` es opcional: por defecto usa la fecha de hoy. Falla con `BAD_REQUEST` si el producto no tiene un ciclo abierto.
+Cierra el ciclo abierto (calculando `daysLasted`) y **agrega el artículo a la lista de compras** marcado como `autoAdded`, sin duplicar si ya estaba pendiente; si el usuario no tiene lista activa, se crea una. `depletedOn` es opcional: por defecto usa la fecha de hoy. Falla con `BAD_REQUEST` si el artículo no tiene un ciclo abierto.
 
 ### 🔒 `productPurchases` — historial de compras
 
 ```graphql
 query {
-  productPurchases(productId: "<id>") {
+  productPurchases(articleId: "<id>") {
     id purchasedOn quantity unitPrice totalPrice store expenseId
-    product { name }
+    article { name }
   }
 }
 ```
 
-`productId` es opcional: sin él devuelve todas las compras del usuario, ordenadas por fecha descendente.
+`articleId` es opcional: sin él devuelve todas las compras del usuario, ordenadas por fecha descendente.
 
-### 🔒 `consumptionCycles` — ciclos de un producto
+### 🔒 `consumptionCycles` — ciclos de un artículo
 
 ```graphql
 query {
-  consumptionCycles(productId: "<id>") {
+  consumptionCycles(articleId: "<id>") {
     id startedOn depletedOn daysLasted quantity purchaseId
   }
 }
 ```
 
-`depletedOn: null` indica el ciclo en curso. Solo puede haber **un ciclo abierto por producto** (garantizado con un índice único parcial en la base de datos).
+`depletedOn: null` indica el ciclo en curso. Solo puede haber **un ciclo abierto por artículo** (garantizado con un índice único parcial en la base de datos).
 
 ---
 
@@ -620,7 +616,7 @@ Los errores siguen el formato estándar de GraphQL, con el código en `extension
 | Código | Cuándo ocurre |
 | --- | --- |
 | `UNAUTHENTICATED` | Falta el token, está expirado o es inválido; credenciales incorrectas en `login` |
-| `BAD_REQUEST` | Datos inválidos: formato de periodo incorrecto, modificar categorías del sistema, marcar como agotado un producto sin ciclo abierto, enviar `productId` y `newProduct` a la vez |
+| `BAD_REQUEST` | Datos inválidos: formato de periodo incorrecto, modificar categorías del sistema, marcar como agotado un artículo sin ciclo abierto, enviar `articleId` y `newArticle` a la vez |
 | `NOT_FOUND` | El recurso no existe o no pertenece al usuario |
 | `CONFLICT` | El email ya está registrado |
 | `GRAPHQL_VALIDATION_FAILED` | El query no cumple el esquema (campo inexistente, tipo incorrecto) |

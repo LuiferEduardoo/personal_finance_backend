@@ -16,7 +16,7 @@ Backend de finanzas personales. Este repositorio es **solo el backend** (API); n
 
 1. **Control de gastos**: registro de gastos categorizados (categorías, subcategorías, etc.). Cada gasto puede asociarse a un **artículo** (producto, servicio, etc.) con una cantidad.
 2. **Inflación**: dos métricas distintas — `expenseInflation` (variación del gasto total, mensual/anual) e `articleInflation` (**inflación real**: índice de precios de Laspeyres sobre el precio unitario de los artículos, aislando el cambio de precio del de cantidad; con desglose por artículo y por categoría).
-3. **Inventario de productos**: listar cuándo un producto se acaba y agregarlo automáticamente al inventario cuando se compra de nuevo. Un gasto de un artículo **tipo producto** entra al inventario: crea/vincula el producto, registra la compra y reabre el ciclo de consumo ("hay").
+3. **Inventario de productos**: un "producto" es un **artículo `type = PRODUCT`** (no hay entidad `Product` separada; se fusionó en `Article`). Al registrar un gasto de un artículo tipo producto, entra al inventario: se registra la compra y se reabre el ciclo de consumo ("hay"). El query `products` devuelve los artículos tipo producto; la creación ocurre solo vía gasto.
 4. **Análisis de facturas por imagen**: extraer los datos de una factura a partir de una imagen.
 5. **Integración con correo electrónico**: conectar con el correo del usuario para analizar los correos y detectar automáticamente cuándo llega una factura.
 6. **Registro de inversiones**: registro y seguimiento de las inversiones del usuario.
