@@ -9,12 +9,12 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { Article } from '../../articles/entities/article.entity';
 import { NumericTransformer } from '../../common/transformers/numeric.transformer';
 import { Expense } from '../../transactions/entities/expense.entity';
 import { User } from '../../users/entities/user.entity';
-import { Product } from './product.entity';
 
-// línea de compra: un gasto (ej. mercado) puede tener muchas compras de productos
+// línea de compra: un gasto (ej. mercado) puede tener muchas compras de artículos
 @ObjectType()
 @Entity('product_purchases')
 @Check('product_purchases_quantity_check', '"quantity" > 0')
@@ -22,7 +22,7 @@ import { Product } from './product.entity';
   'product_purchases_unit_price_check',
   '"unit_price" IS NULL OR "unit_price" >= 0',
 )
-@Index('idx_product_purchases_product', ['productId', 'purchasedOn'])
+@Index('idx_product_purchases_article', ['articleId', 'purchasedOn'])
 export class ProductPurchase {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -37,14 +37,16 @@ export class ProductPurchase {
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
-  @Field(() => Product)
-  @ManyToOne(() => Product, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'product_id' })
-  product: Product;
+  @Field(() => Article)
+  @ManyToOne(() => Article, (article) => article.purchases, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'article_id' })
+  article: Article;
 
   @Field(() => ID)
-  @Column({ name: 'product_id', type: 'uuid' })
-  productId: string;
+  @Column({ name: 'article_id', type: 'uuid' })
+  articleId: string;
 
   // null si no está ligada a un gasto registrado
   @ManyToOne(() => Expense, { nullable: true, onDelete: 'SET NULL' })

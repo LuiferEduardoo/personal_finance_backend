@@ -18,7 +18,6 @@ import { InstallmentPlan } from '../../installments/entities/installment-plan.en
 import { PaymentMethod } from '../../payment-methods/entities/payment-method.entity';
 import { ConsumptionCycle } from '../../products/entities/consumption-cycle.entity';
 import { ProductPurchase } from '../../products/entities/product-purchase.entity';
-import { Product } from '../../products/entities/product.entity';
 import { ShoppingList } from '../../shopping-lists/entities/shopping-list.entity';
 import { Tag } from '../../tags/entities/tag.entity';
 import { Expense } from '../../transactions/entities/expense.entity';
@@ -84,9 +83,6 @@ export class User {
 
   @OneToMany(() => Tag, (tag) => tag.user)
   tags: Tag[];
-
-  @OneToMany(() => Product, (product) => product.user)
-  products: Product[];
 
   @OneToMany(() => ProductPurchase, (purchase) => purchase.user)
   productPurchases: ProductPurchase[];

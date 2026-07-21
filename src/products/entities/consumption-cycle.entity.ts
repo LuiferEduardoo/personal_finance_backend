@@ -9,18 +9,21 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { Article } from '../../articles/entities/article.entity';
 import { NumericTransformer } from '../../common/transformers/numeric.transformer';
 import { User } from '../../users/entities/user.entity';
 import { ProductPurchase } from './product-purchase.entity';
-import { Product } from './product.entity';
 
 // ciclo de consumo: desde "lo empecé a usar" hasta "se acabó"
 @ObjectType()
 @Entity('consumption_cycles')
-@Check('cycles_date_order', '"depleted_on" IS NULL OR "depleted_on" >= "started_on"')
+@Check(
+  'cycles_date_order',
+  '"depleted_on" IS NULL OR "depleted_on" >= "started_on"',
+)
 @Check('consumption_cycles_quantity_check', '"quantity" > 0')
-@Index('idx_cycles_product', ['productId', 'startedOn'])
-@Index('idx_cycles_one_open', ['productId'], {
+@Index('idx_cycles_article', ['articleId', 'startedOn'])
+@Index('idx_cycles_one_open', ['articleId'], {
   unique: true,
   where: '"depleted_on" IS NULL',
 })
@@ -38,14 +41,16 @@ export class ConsumptionCycle {
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
-  @Field(() => Product)
-  @ManyToOne(() => Product, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'product_id' })
-  product: Product;
+  @Field(() => Article)
+  @ManyToOne(() => Article, (article) => article.consumptionCycles, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'article_id' })
+  article: Article;
 
   @Field(() => ID)
-  @Column({ name: 'product_id', type: 'uuid' })
-  productId: string;
+  @Column({ name: 'article_id', type: 'uuid' })
+  articleId: string;
 
   @ManyToOne(() => ProductPurchase, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'purchase_id' })

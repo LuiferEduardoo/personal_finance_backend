@@ -8,9 +8,9 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { Article } from '../../articles/entities/article.entity';
 import { NumericTransformer } from '../../common/transformers/numeric.transformer';
 import { ProductPurchase } from '../../products/entities/product-purchase.entity';
-import { Product } from '../../products/entities/product.entity';
 import { ShoppingList } from './shopping-list.entity';
 
 export enum ListItemStatus {
@@ -20,7 +20,10 @@ export enum ListItemStatus {
 }
 
 @Entity('shopping_list_items')
-@Check('list_item_has_ref', '"product_id" IS NOT NULL OR "free_text" IS NOT NULL')
+@Check(
+  'list_item_has_ref',
+  '"article_id" IS NOT NULL OR "free_text" IS NOT NULL',
+)
 @Check('shopping_list_items_quantity_check', '"quantity" > 0')
 @Index('idx_list_items_pending', ['listId', 'position'], {
   where: `"status" = 'pending'`,
@@ -37,12 +40,12 @@ export class ShoppingListItem {
   listId: string;
 
   // CASCADE: SET NULL violaría el check list_item_has_ref cuando free_text es null
-  @ManyToOne(() => Product, { nullable: true, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'product_id' })
-  product: Product | null;
+  @ManyToOne(() => Article, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'article_id' })
+  article: Article | null;
 
-  @Column({ name: 'product_id', type: 'uuid', nullable: true })
-  productId: string | null;
+  @Column({ name: 'article_id', type: 'uuid', nullable: true })
+  articleId: string | null;
 
   // para ítems que aún no están en el catálogo
   @Column({ name: 'free_text', type: 'text', nullable: true })
