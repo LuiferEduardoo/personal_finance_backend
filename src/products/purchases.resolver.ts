@@ -1,12 +1,12 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, ID, Mutation, Query, Resolver } from '@nestjs/graphql';
+import { Article } from '../articles/entities/article.entity';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
 import { RegisterProductPurchaseInput } from './dto/register-product-purchase.input';
 import { ConsumptionCycle } from './entities/consumption-cycle.entity';
 import { ProductPurchase } from './entities/product-purchase.entity';
-import { Product } from './entities/product.entity';
 import { PurchasesService } from './purchases.service';
 
 @Resolver(() => ProductPurchase)
@@ -15,28 +15,28 @@ export class PurchasesResolver {
   constructor(private readonly purchasesService: PurchasesService) {}
 
   @Query(() => [ProductPurchase], {
-    description: 'Historial de compras de productos (opcional por producto)',
+    description: 'Historial de compras (opcional por artículo)',
   })
   productPurchases(
     @CurrentUser() user: JwtPayload,
-    @Args('productId', { type: () => ID, nullable: true }) productId?: string,
+    @Args('articleId', { type: () => ID, nullable: true }) articleId?: string,
   ): Promise<ProductPurchase[]> {
-    return this.purchasesService.findPurchases(user.sub, productId);
+    return this.purchasesService.findPurchases(user.sub, articleId);
   }
 
   @Query(() => [ConsumptionCycle], {
-    description: 'Ciclos de consumo de un producto',
+    description: 'Ciclos de consumo de un artículo',
   })
   consumptionCycles(
     @CurrentUser() user: JwtPayload,
-    @Args('productId', { type: () => ID }) productId: string,
+    @Args('articleId', { type: () => ID }) articleId: string,
   ): Promise<ConsumptionCycle[]> {
-    return this.purchasesService.findCycles(user.sub, productId);
+    return this.purchasesService.findCycles(user.sub, articleId);
   }
 
   @Mutation(() => ProductPurchase, {
     description:
-      'Registra una compra. Acepta un producto existente (productId) o crea uno nuevo (newProduct). Abre ciclo de consumo si no hay uno y marca la lista de compras.',
+      'Registra una compra. Acepta un artículo existente (articleId) o crea uno nuevo (newArticle). Abre ciclo de consumo si no hay uno y marca la lista de compras.',
   })
   registerProductPurchase(
     @CurrentUser() user: JwtPayload,
@@ -45,15 +45,15 @@ export class PurchasesResolver {
     return this.purchasesService.registerPurchase(user.sub, input);
   }
 
-  @Mutation(() => Product, {
+  @Mutation(() => Article, {
     description:
-      'Marca el producto como agotado: cierra el ciclo de consumo y lo agrega a la lista de compras',
+      'Marca el artículo como agotado: cierra el ciclo de consumo y lo agrega a la lista de compras',
   })
   markProductDepleted(
     @CurrentUser() user: JwtPayload,
-    @Args('productId', { type: () => ID }) productId: string,
+    @Args('articleId', { type: () => ID }) articleId: string,
     @Args('depletedOn', { nullable: true }) depletedOn?: string,
-  ): Promise<Product> {
-    return this.purchasesService.markDepleted(user.sub, productId, depletedOn);
+  ): Promise<Article> {
+    return this.purchasesService.markDepleted(user.sub, articleId, depletedOn);
   }
 }

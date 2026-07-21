@@ -1,18 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
-import { Article } from '../articles/entities/article.entity';
-import { CreateProductInput } from './dto/create-product.input';
+import { Article, ArticleType } from '../articles/entities/article.entity';
 import { UpdateProductInput } from './dto/update-product.input';
 import { ProductStatsView } from './entities/product-stats.view';
-import { Product } from './entities/product.entity';
 
+// "producto" = artículo de tipo PRODUCT (con inventario). Se delega el CRUD en
+// ArticlesService; aquí solo se filtra por tipo y se exponen las stats.
 @Injectable()
 export class ProductsService {
   constructor(
-    @InjectRepository(Product)
-    private readonly productsRepository: Repository<Product>,
     @InjectRepository(ProductStatsView)
     private readonly productStatsRepository: Repository<ProductStatsView>,
     private readonly articlesService: ArticlesService,
@@ -22,53 +20,26 @@ export class ProductsService {
     userId: string,
     search?: string,
     includeInactive = false,
-  ): Promise<Product[]> {
-    return this.productsRepository.find({
-      where: {
-        userId,
-        ...(includeInactive ? {} : { isActive: true }),
-        ...(search ? { name: ILike(`%${search}%`) } : {}),
-      },
-      relations: { category: true },
-      order: { name: 'ASC' },
-    });
+  ): Promise<Article[]> {
+    return this.articlesService.findAll(
+      userId,
+      search,
+      ArticleType.PRODUCT,
+      includeInactive,
+    );
   }
 
-  async findOne(id: string, userId: string): Promise<Product> {
-    const product = await this.productsRepository.findOne({
-      where: { id, userId },
-      relations: { category: true },
-    });
-    if (!product) {
-      throw new NotFoundException(`Producto ${id} no encontrado`);
-    }
-    return product;
+  findOne(id: string, userId: string): Promise<Article> {
+    return this.articlesService.findOne(id, userId);
   }
 
-  async create(userId: string, input: CreateProductInput): Promise<Product> {
-    if (input.articleId) {
-      await this.articlesService.findOne(input.articleId, userId);
-    }
-    const product = this.productsRepository.create({ ...input, userId });
-    const saved = await this.productsRepository.save(product);
-    return this.findOne(saved.id, userId);
-  }
-
-  async update(userId: string, input: UpdateProductInput): Promise<Product> {
-    const product = await this.findOne(input.id, userId);
-    if (input.articleId) {
-      await this.articlesService.findOne(input.articleId, userId);
-    }
+  update(userId: string, input: UpdateProductInput): Promise<Article> {
     const { id, ...changes } = input;
-    Object.assign(product, changes);
-    await this.productsRepository.save(product);
-    return this.findOne(id, userId);
+    return this.articlesService.applyUpdate(userId, id, changes);
   }
 
-  async remove(id: string, userId: string): Promise<boolean> {
-    const product = await this.findOne(id, userId);
-    await this.productsRepository.remove(product);
-    return true;
+  remove(id: string, userId: string): Promise<boolean> {
+    return this.articlesService.remove(id, userId);
   }
 
   productStats(userId: string): Promise<ProductStatsView[]> {
@@ -76,30 +47,5 @@ export class ProductsService {
       where: { userId },
       order: { name: 'ASC' },
     });
-  }
-
-  // ficha de inventario de un artículo tipo producto: la encuentra o la crea.
-  // Así el producto aparece en el query `products` al comprar el artículo.
-  async findOrCreateForArticle(
-    userId: string,
-    article: Article,
-  ): Promise<Product> {
-    const existing = await this.productsRepository.findOne({
-      where: { userId, articleId: article.id },
-    });
-    if (existing) {
-      return existing;
-    }
-    return this.productsRepository.save(
-      this.productsRepository.create({
-        userId,
-        articleId: article.id,
-        name: article.name,
-        brand: article.brand,
-        categoryId: article.categoryId,
-        unit: article.unit ?? undefined,
-        isConsumable: true,
-      }),
-    );
   }
 }

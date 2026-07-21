@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import { ArticlesService } from '../articles/articles.service';
 import { Article } from '../articles/entities/article.entity';
 import {
   ListItemStatus,
@@ -10,10 +11,8 @@ import { ShoppingList } from '../shopping-lists/entities/shopping-list.entity';
 import { RegisterProductPurchaseInput } from './dto/register-product-purchase.input';
 import { ConsumptionCycle } from './entities/consumption-cycle.entity';
 import { ProductPurchase } from './entities/product-purchase.entity';
-import { Product } from './entities/product.entity';
-import { ProductsService } from './products.service';
 
-// datos de una compra ya con el producto resuelto
+// datos de una compra ya con el artículo resuelto
 interface PurchaseData {
   quantity?: number;
   unitPrice?: number | null;
@@ -34,88 +33,73 @@ export class PurchasesService {
     private readonly shoppingListsRepository: Repository<ShoppingList>,
     @InjectRepository(ShoppingListItem)
     private readonly shoppingListItemsRepository: Repository<ShoppingListItem>,
-    private readonly productsService: ProductsService,
+    private readonly articlesService: ArticlesService,
   ) {}
 
   findPurchases(
     userId: string,
-    productId?: string,
+    articleId?: string,
   ): Promise<ProductPurchase[]> {
     return this.purchasesRepository.find({
-      where: { userId, ...(productId ? { productId } : {}) },
-      relations: { product: true },
+      where: { userId, ...(articleId ? { articleId } : {}) },
+      relations: { article: true },
       order: { purchasedOn: 'DESC', createdAt: 'DESC' },
     });
   }
 
-  findCycles(userId: string, productId: string): Promise<ConsumptionCycle[]> {
+  findCycles(userId: string, articleId: string): Promise<ConsumptionCycle[]> {
     return this.cyclesRepository.find({
-      where: { userId, productId },
-      relations: { product: true },
+      where: { userId, articleId },
+      relations: { article: true },
       order: { startedOn: 'DESC' },
     });
   }
 
-  hasOpenCycle(productId: string): Promise<boolean> {
+  hasOpenCycle(articleId: string): Promise<boolean> {
     return this.cyclesRepository.exists({
-      where: { productId, depletedOn: IsNull() },
+      where: { articleId, depletedOn: IsNull() },
     });
   }
 
   /**
-   * Registra una compra. Si el producto es consumible y no tiene ciclo
+   * Registra una compra. Si el artículo es consumible y no tiene ciclo
    * abierto, abre uno nuevo ("hay Shampoo"), y marca como comprados los
-   * ítems pendientes de la lista de compras para ese producto.
+   * ítems pendientes de la lista de compras para ese artículo.
    */
   async registerPurchase(
     userId: string,
     input: RegisterProductPurchaseInput,
   ): Promise<ProductPurchase> {
-    if (!input.productId && !input.newProduct) {
-      throw new BadRequestException(
-        'Debes enviar productId o newProduct para registrar la compra',
-      );
-    }
-    if (input.productId && input.newProduct) {
-      throw new BadRequestException(
-        'Envía solo uno: productId o newProduct, no ambos',
-      );
-    }
-
-    const product = input.productId
-      ? await this.productsService.findOne(input.productId, userId)
-      : await this.productsService.create(userId, input.newProduct!);
-
-    return this.recordPurchase(userId, product, input);
+    const article = await this.articlesService.resolveOrCreate(
+      userId,
+      input.articleId,
+      input.newArticle,
+    );
+    return this.recordPurchase(userId, article, input);
   }
 
   /**
    * Registra la compra de un artículo tipo producto (disparado al crear un
-   * gasto). Encuentra o crea la ficha de inventario del artículo y aplica la
-   * misma lógica de ciclos y lista de compras que registerPurchase.
+   * gasto). Aplica la lógica de ciclos y lista de compras.
    */
-  async registerPurchaseForArticle(
+  registerPurchaseForArticle(
     userId: string,
     article: Article,
     data: PurchaseData,
   ): Promise<ProductPurchase> {
-    const product = await this.productsService.findOrCreateForArticle(
-      userId,
-      article,
-    );
-    return this.recordPurchase(userId, product, data);
+    return this.recordPurchase(userId, article, data);
   }
 
   // cuerpo común: crea la compra, abre ciclo si aplica y sincroniza la lista
   private async recordPurchase(
     userId: string,
-    product: Product,
+    article: Article,
     data: PurchaseData,
   ): Promise<ProductPurchase> {
     const purchase = await this.purchasesRepository.save(
       this.purchasesRepository.create({
         userId,
-        productId: product.id,
+        articleId: article.id,
         quantity: data.quantity ?? 1,
         unitPrice: data.unitPrice ?? null,
         store: data.store ?? null,
@@ -126,11 +110,11 @@ export class PurchasesService {
     );
 
     // "hay Shampoo": abre ciclo de consumo si es consumible y no hay uno abierto
-    if (product.isConsumable && !(await this.hasOpenCycle(product.id))) {
+    if (article.isConsumable && !(await this.hasOpenCycle(article.id))) {
       await this.cyclesRepository.save(
         this.cyclesRepository.create({
           userId,
-          productId: product.id,
+          articleId: article.id,
           purchaseId: purchase.id,
           startedOn: data.purchasedOn,
           quantity: data.quantity ?? 1,
@@ -139,32 +123,32 @@ export class PurchasesService {
     }
 
     // marca como comprados los ítems pendientes de las listas del usuario
-    await this.markPendingListItemsPurchased(userId, product.id, purchase.id);
+    await this.markPendingListItemsPurchased(userId, article.id, purchase.id);
 
     const saved = await this.purchasesRepository.findOne({
       where: { id: purchase.id },
-      relations: { product: true },
+      relations: { article: true },
     });
     return saved!;
   }
 
   /**
-   * "Se acabó": cierra el ciclo abierto y agrega el producto a la lista
+   * "Se acabó": cierra el ciclo abierto y agrega el artículo a la lista
    * de compras (autoAdded) si no está ya pendiente.
    */
   async markDepleted(
     userId: string,
-    productId: string,
+    articleId: string,
     depletedOn?: string,
-  ): Promise<Product> {
-    const product = await this.productsService.findOne(productId, userId);
+  ): Promise<Article> {
+    const article = await this.articlesService.findOne(articleId, userId);
 
     const openCycle = await this.cyclesRepository.findOne({
-      where: { productId, depletedOn: IsNull() },
+      where: { articleId, depletedOn: IsNull() },
     });
     if (!openCycle) {
       throw new BadRequestException(
-        'El producto no tiene un ciclo de consumo abierto',
+        'El artículo no tiene un ciclo de consumo abierto',
       );
     }
 
@@ -175,18 +159,18 @@ export class PurchasesService {
       depletionDate < openCycle.startedOn ? openCycle.startedOn : depletionDate;
     await this.cyclesRepository.save(openCycle);
 
-    await this.addToShoppingList(userId, productId);
-    return product;
+    await this.addToShoppingList(userId, articleId);
+    return article;
   }
 
   private async markPendingListItemsPurchased(
     userId: string,
-    productId: string,
+    articleId: string,
     purchaseId: string,
   ): Promise<void> {
     const pendingItems = await this.shoppingListItemsRepository.find({
       where: {
-        productId,
+        articleId,
         status: ListItemStatus.PENDING,
         list: { userId },
       },
@@ -201,11 +185,11 @@ export class PurchasesService {
 
   private async addToShoppingList(
     userId: string,
-    productId: string,
+    articleId: string,
   ): Promise<void> {
     const alreadyPending = await this.shoppingListItemsRepository.exists({
       where: {
-        productId,
+        articleId,
         status: ListItemStatus.PENDING,
         list: { userId, isArchived: false },
       },
@@ -227,7 +211,7 @@ export class PurchasesService {
     await this.shoppingListItemsRepository.save(
       this.shoppingListItemsRepository.create({
         listId: list.id,
-        productId,
+        articleId,
         autoAdded: true,
       }),
     );

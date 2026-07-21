@@ -8,17 +8,19 @@ import {
   ResolveField,
   Resolver,
 } from '@nestjs/graphql';
+import { Article } from '../articles/entities/article.entity';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
-import { CreateProductInput } from './dto/create-product.input';
 import { UpdateProductInput } from './dto/update-product.input';
 import { ProductStatsView } from './entities/product-stats.view';
-import { Product } from './entities/product.entity';
 import { ProductsService } from './products.service';
 import { PurchasesService } from './purchases.service';
 
-@Resolver(() => Product)
+// "producto" es la vista de inventario de un artículo tipo PRODUCT.
+// Resuelve el campo inStock del tipo Article (por eso vive aquí, junto a
+// PurchasesService, y no en ArticlesModule — evita un ciclo de módulos).
+@Resolver(() => Article)
 @UseGuards(GqlAuthGuard)
 export class ProductsResolver {
   constructor(
@@ -30,25 +32,27 @@ export class ProductsResolver {
     description:
       '"hay producto": tiene un ciclo de consumo abierto (comprado y sin agotar)',
   })
-  inStock(@Parent() product: Product): Promise<boolean> {
-    return this.purchasesService.hasOpenCycle(product.id);
+  inStock(@Parent() article: Article): Promise<boolean> {
+    return this.purchasesService.hasOpenCycle(article.id);
   }
 
-  @Query(() => [Product], { description: 'Catálogo de productos del usuario' })
+  @Query(() => [Article], {
+    description: 'Catálogo de productos (artículos tipo producto) del usuario',
+  })
   products(
     @CurrentUser() user: JwtPayload,
     @Args('search', { nullable: true }) search?: string,
     @Args('includeInactive', { nullable: true, defaultValue: false })
     includeInactive?: boolean,
-  ): Promise<Product[]> {
+  ): Promise<Article[]> {
     return this.productsService.findAll(user.sub, search, includeInactive);
   }
 
-  @Query(() => Product)
+  @Query(() => Article)
   product(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Product> {
+  ): Promise<Article> {
     return this.productsService.findOne(id, user.sub);
   }
 
@@ -60,19 +64,11 @@ export class ProductsResolver {
     return this.productsService.productStats(user.sub);
   }
 
-  @Mutation(() => Product)
-  createProduct(
-    @CurrentUser() user: JwtPayload,
-    @Args('input') input: CreateProductInput,
-  ): Promise<Product> {
-    return this.productsService.create(user.sub, input);
-  }
-
-  @Mutation(() => Product)
+  @Mutation(() => Article)
   updateProduct(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: UpdateProductInput,
-  ): Promise<Product> {
+  ): Promise<Article> {
     return this.productsService.update(user.sub, input);
   }
 

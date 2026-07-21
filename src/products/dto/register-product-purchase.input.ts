@@ -1,20 +1,20 @@
 import { Field, Float, ID, InputType } from '@nestjs/graphql';
-import { CreateProductInput } from './create-product.input';
+import { CreateArticleInput } from '../../articles/dto/create-article.input';
 
 @InputType()
 export class RegisterProductPurchaseInput {
   @Field(() => ID, {
     nullable: true,
-    description: 'Producto existente del catálogo',
+    description: 'Artículo existente del catálogo',
   })
-  productId?: string;
+  articleId?: string;
 
-  @Field(() => CreateProductInput, {
+  @Field(() => CreateArticleInput, {
     nullable: true,
     description:
-      'Crear el producto en el catálogo en la misma compra (si no existe aún)',
+      'Crear el artículo en el catálogo en la misma compra (si no existe aún)',
   })
-  newProduct?: CreateProductInput;
+  newArticle?: CreateArticleInput;
 
   @Field(() => Float, { nullable: true, defaultValue: 1 })
   quantity?: number;
