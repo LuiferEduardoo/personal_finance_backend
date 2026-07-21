@@ -9,6 +9,7 @@ import { AppResolver } from './app.resolver';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
+import { formatError } from './common/graphql/format-error';
 import { databaseConfig } from './config/database.config';
 import { InstallmentsModule } from './installments/installments.module';
 import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
@@ -32,6 +33,7 @@ import { UsersModule } from './users/users.module';
       autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
       sortSchema: true,
       playground: process.env.NODE_ENV !== 'production',
+      formatError,
     }),
     UsersModule,
     AuthModule,
