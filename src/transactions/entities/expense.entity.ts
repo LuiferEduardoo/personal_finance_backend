@@ -12,6 +12,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Article } from '../../articles/entities/article.entity';
 import { Category } from '../../categories/entities/category.entity';
 import { Recurrence } from '../../common/enums/recurrence.enum';
 import { NumericTransformer } from '../../common/transformers/numeric.transformer';
@@ -71,6 +72,17 @@ export class Expense {
   @Column({ name: 'installment_id', type: 'uuid', nullable: true })
   installmentId: string | null;
 
+  // artículo comprado en este gasto (para inflación de precios)
+  @Field(() => Article, { nullable: true })
+  @ManyToOne(() => Article, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'article_id' })
+  article: Article | null;
+
+  @Field(() => ID, { nullable: true })
+  @Index('idx_expenses_article')
+  @Column({ name: 'article_id', type: 'uuid', nullable: true })
+  articleId: string | null;
+
   @Field()
   @Column({ type: 'text' })
   description: string;
@@ -83,6 +95,16 @@ export class Expense {
     transformer: new NumericTransformer(),
   })
   amount: number;
+
+  @Field(() => Float, { description: 'Cantidad del artículo comprada' })
+  @Column({
+    type: 'numeric',
+    precision: 12,
+    scale: 3,
+    default: 1,
+    transformer: new NumericTransformer(),
+  })
+  quantity: number;
 
   @Field()
   @Column({ type: 'char', length: 3, default: 'COP' })
@@ -139,4 +161,12 @@ export class Expense {
   @Field()
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
+
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Precio unitario del artículo (amount / quantity)',
+  })
+  get unitPrice(): number | null {
+    return this.quantity ? this.amount / this.quantity : null;
+  }
 }

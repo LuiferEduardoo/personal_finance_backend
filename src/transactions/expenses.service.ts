@@ -7,6 +7,9 @@ import {
   MoreThanOrEqual,
   Repository,
 } from 'typeorm';
+import { ArticlesService } from '../articles/articles.service';
+import { Article, ArticleType } from '../articles/entities/article.entity';
+import { PurchasesService } from '../products/purchases.service';
 import { CreateExpenseInput } from './dto/create-expense.input';
 import { TransactionsFilterInput } from './dto/transactions-filter.input';
 import { UpdateExpenseInput } from './dto/update-expense.input';
@@ -17,6 +20,8 @@ export class ExpensesService {
   constructor(
     @InjectRepository(Expense)
     private readonly expensesRepository: Repository<Expense>,
+    private readonly articlesService: ArticlesService,
+    private readonly purchasesService: PurchasesService,
   ) {}
 
   findAll(
@@ -39,7 +44,7 @@ export class ExpensesService {
     }
     return this.expensesRepository.find({
       where,
-      relations: { category: true },
+      relations: { category: true, article: true },
       order: { occurredOn: 'DESC', createdAt: 'DESC' },
     });
   }
@@ -47,7 +52,7 @@ export class ExpensesService {
   async findOne(id: string): Promise<Expense> {
     const expense = await this.expensesRepository.findOne({
       where: { id },
-      relations: { category: true },
+      relations: { category: true, article: true },
     });
     if (!expense) {
       throw new NotFoundException(`Gasto ${id} no encontrado`);
@@ -56,14 +61,44 @@ export class ExpensesService {
   }
 
   async create(input: CreateExpenseInput): Promise<Expense> {
-    const expense = this.expensesRepository.create(input);
+    const { articleId, newArticle, ...rest } = input;
+
+    const article =
+      articleId || newArticle
+        ? await this.articlesService.resolveOrCreate(
+            rest.userId,
+            articleId,
+            newArticle,
+          )
+        : null;
+
+    const expense = this.expensesRepository.create({
+      ...rest,
+      articleId: article?.id ?? null,
+    });
     const saved = await this.expensesRepository.save(expense);
+
+    // si el artículo es tipo producto, entra al inventario: crea/vincula el
+    // product, registra la compra y reabre el ciclo ("hay") si estaba agotado
+    if (article?.type === ArticleType.PRODUCT) {
+      await this.registerInventoryPurchase(rest.userId, article, saved);
+    }
+
     return this.findOne(saved.id);
   }
 
   async update(input: UpdateExpenseInput): Promise<Expense> {
     const expense = await this.findOne(input.id);
-    const { id, ...changes } = input;
+    const { id, articleId, newArticle, ...changes } = input;
+
+    if (articleId || newArticle) {
+      const article = await this.articlesService.resolveOrCreate(
+        expense.userId,
+        articleId,
+        newArticle,
+      );
+      expense.articleId = article.id;
+    }
     Object.assign(expense, changes);
     await this.expensesRepository.save(expense);
     return this.findOne(id);
@@ -73,5 +108,19 @@ export class ExpensesService {
     const expense = await this.findOne(id);
     await this.expensesRepository.remove(expense);
     return true;
+  }
+
+  private registerInventoryPurchase(
+    userId: string,
+    article: Article,
+    expense: Expense,
+  ): Promise<unknown> {
+    return this.purchasesService.registerPurchaseForArticle(userId, article, {
+      quantity: expense.quantity,
+      unitPrice: expense.quantity ? expense.amount / expense.quantity : null,
+      store: expense.merchant,
+      purchasedOn: expense.occurredOn,
+      expenseId: expense.id,
+    });
   }
 }
