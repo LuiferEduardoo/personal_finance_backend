@@ -1,5 +1,5 @@
 import { Field, Float, ID, InputType } from '@nestjs/graphql';
-import { UnitOfMeasure } from '../entities/product.entity';
+import { UnitOfMeasure } from '../../common/enums/unit-of-measure.enum';
 
 @InputType()
 export class CreateProductInput {
@@ -23,6 +23,12 @@ export class CreateProductInput {
 
   @Field(() => ID, { nullable: true })
   categoryId?: string;
+
+  @Field(() => ID, {
+    nullable: true,
+    description: 'Artículo (catálogo general) al que pertenece este producto',
+  })
+  articleId?: string;
 
   @Field({
     nullable: true,

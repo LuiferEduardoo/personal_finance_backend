@@ -1,10 +1,4 @@
-import {
-  Field,
-  Float,
-  ID,
-  ObjectType,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { Field, Float, ID, ObjectType } from '@nestjs/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -16,23 +10,11 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import { Article } from '../../articles/entities/article.entity';
 import { Category } from '../../categories/entities/category.entity';
+import { UnitOfMeasure } from '../../common/enums/unit-of-measure.enum';
 import { NumericTransformer } from '../../common/transformers/numeric.transformer';
 import { User } from '../../users/entities/user.entity';
-
-export enum UnitOfMeasure {
-  UNIT = 'unit',
-  GRAM = 'g',
-  KILOGRAM = 'kg',
-  MILLILITER = 'ml',
-  LITER = 'l',
-  PACK = 'pack',
-  ROLL = 'roll',
-  PAIR = 'pair',
-  OTHER = 'other',
-}
-
-registerEnumType(UnitOfMeasure, { name: 'UnitOfMeasure' });
 
 // catálogo: una fila por cosa que el usuario compra repetidamente
 @ObjectType()
@@ -47,6 +29,10 @@ registerEnumType(UnitOfMeasure, { name: 'UnitOfMeasure' });
 @Index('idx_products_user', ['userId'], { where: '"is_active"' })
 @Index('idx_products_barcode', ['userId', 'barcode'], {
   where: '"barcode" IS NOT NULL',
+})
+@Index('idx_products_article', ['articleId'], {
+  unique: true,
+  where: '"article_id" IS NOT NULL',
 })
 export class Product {
   @Field(() => ID)
@@ -69,6 +55,16 @@ export class Product {
   @Field(() => ID, { nullable: true })
   @Column({ name: 'category_id', type: 'uuid', nullable: true })
   categoryId: string | null;
+
+  // artículo (catálogo general) del que este producto es la ficha de inventario
+  @Field(() => Article, { nullable: true })
+  @ManyToOne(() => Article, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'article_id' })
+  article: Article | null;
+
+  @Field(() => ID, { nullable: true })
+  @Column({ name: 'article_id', type: 'uuid', nullable: true })
+  articleId: string | null;
 
   // "Shampoo Head & Shoulders"
   @Field()

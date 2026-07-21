@@ -8,6 +8,7 @@ import { ProductsResolver } from './products.resolver';
 import { ProductsService } from './products.service';
 import { PurchasesResolver } from './purchases.resolver';
 import { PurchasesService } from './purchases.service';
+import { ArticlesModule } from '../articles/articles.module';
 import { ShoppingListsModule } from '../shopping-lists/shopping-lists.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { ShoppingListsModule } from '../shopping-lists/shopping-lists.module';
       ProductStatsView,
     ]),
     ShoppingListsModule,
+    ArticlesModule,
   ],
   providers: [
     ProductsService,

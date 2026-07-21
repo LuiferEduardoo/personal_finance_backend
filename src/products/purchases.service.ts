@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import { Article } from '../articles/entities/article.entity';
 import {
   ListItemStatus,
   ShoppingListItem,
@@ -11,6 +12,16 @@ import { ConsumptionCycle } from './entities/consumption-cycle.entity';
 import { ProductPurchase } from './entities/product-purchase.entity';
 import { Product } from './entities/product.entity';
 import { ProductsService } from './products.service';
+
+// datos de una compra ya con el producto resuelto
+interface PurchaseData {
+  quantity?: number;
+  unitPrice?: number | null;
+  store?: string | null;
+  purchasedOn: string;
+  expenseId?: string | null;
+  notes?: string | null;
+}
 
 @Injectable()
 export class PurchasesService {
@@ -75,16 +86,42 @@ export class PurchasesService {
       ? await this.productsService.findOne(input.productId, userId)
       : await this.productsService.create(userId, input.newProduct!);
 
+    return this.recordPurchase(userId, product, input);
+  }
+
+  /**
+   * Registra la compra de un artículo tipo producto (disparado al crear un
+   * gasto). Encuentra o crea la ficha de inventario del artículo y aplica la
+   * misma lógica de ciclos y lista de compras que registerPurchase.
+   */
+  async registerPurchaseForArticle(
+    userId: string,
+    article: Article,
+    data: PurchaseData,
+  ): Promise<ProductPurchase> {
+    const product = await this.productsService.findOrCreateForArticle(
+      userId,
+      article,
+    );
+    return this.recordPurchase(userId, product, data);
+  }
+
+  // cuerpo común: crea la compra, abre ciclo si aplica y sincroniza la lista
+  private async recordPurchase(
+    userId: string,
+    product: Product,
+    data: PurchaseData,
+  ): Promise<ProductPurchase> {
     const purchase = await this.purchasesRepository.save(
       this.purchasesRepository.create({
         userId,
         productId: product.id,
-        quantity: input.quantity ?? 1,
-        unitPrice: input.unitPrice ?? null,
-        store: input.store ?? null,
-        purchasedOn: input.purchasedOn,
-        expenseId: input.expenseId ?? null,
-        notes: input.notes ?? null,
+        quantity: data.quantity ?? 1,
+        unitPrice: data.unitPrice ?? null,
+        store: data.store ?? null,
+        purchasedOn: data.purchasedOn,
+        expenseId: data.expenseId ?? null,
+        notes: data.notes ?? null,
       }),
     );
 
@@ -95,8 +132,8 @@ export class PurchasesService {
           userId,
           productId: product.id,
           purchaseId: purchase.id,
-          startedOn: input.purchasedOn,
-          quantity: input.quantity ?? 1,
+          startedOn: data.purchasedOn,
+          quantity: data.quantity ?? 1,
         }),
       );
     }
