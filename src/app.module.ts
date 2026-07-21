@@ -7,6 +7,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppResolver } from './app.resolver';
 import { AppService } from './app.service';
+import { ArticlesModule } from './articles/articles.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
 import { formatError } from './common/graphql/format-error';
@@ -44,6 +45,7 @@ import { UsersModule } from './users/users.module';
     TagsModule,
     ProductsModule,
     ShoppingListsModule,
+    ArticlesModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],
