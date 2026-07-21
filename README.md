@@ -1,99 +1,165 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Personal Finance Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API de finanzas personales construida con **NestJS**, **GraphQL (Apollo)**, **TypeORM** y **PostgreSQL**.
+Este repositorio es solo el backend; no contiene frontend.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Funcionalidades
 
-## Description
+| Estado | Funcionalidad |
+| --- | --- |
+| ✅ | Autenticación con JWT (access + refresh token) |
+| ✅ | Control de gastos e ingresos categorizados |
+| ✅ | Categorías jerárquicas (categoría → subcategoría) con catálogo del sistema |
+| ✅ | Inflación personal mensual y anual sobre los gastos |
+| ✅ | Inventario de productos: compras, ciclos de consumo y lista de compras automática |
+| ⏳ | OAuth con Google |
+| ⏳ | Análisis de facturas por imagen |
+| ⏳ | Integración con correo electrónico para detectar facturas |
+| ⏳ | Registro de inversiones |
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+La documentación completa de queries y mutations está en **[docs/API.md](docs/API.md)**.
 
-## Project setup
+## Requisitos
 
-```bash
-$ npm install
-```
+- **Node.js** 20 o superior (probado con 22.x)
+- **npm** 10 o superior
+- **Docker** y **Docker Compose** (para PostgreSQL y pgAdmin en desarrollo)
 
-## Compile and run the project
+## Puesta en marcha
+
+### 1. Clonar e instalar dependencias
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone <url-del-repositorio>
+cd personal_finance_backend
+npm install
 ```
 
-## Run tests
+### 2. Configurar variables de entorno
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+cp .env.example .env
 ```
 
-## Deployment
+Edita el `.env` según tu entorno:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+| Variable | Descripción | Valor por defecto |
+| --- | --- | --- |
+| `NODE_ENV` | Entorno de ejecución | `development` |
+| `PORT` | Puerto del servidor HTTP | `3000` |
+| `DB_HOST` | Host de PostgreSQL | `localhost` |
+| `DB_PORT` | Puerto de PostgreSQL | `5432` |
+| `DB_USERNAME` | Usuario de PostgreSQL | `postgres` |
+| `DB_PASSWORD` | Contraseña de PostgreSQL | `postgres` |
+| `DB_NAME` | Nombre de la base de datos | `personal_finance` |
+| `JWT_SECRET` | Secreto para firmar los access tokens | — (**cámbialo**) |
+| `JWT_ACCESS_EXPIRATION` | Duración del access token | `20m` |
+| `REFRESH_TOKEN_TTL_DAYS` | Duración del refresh token en días | `180` (6 meses) |
+| `PGADMIN_EMAIL` | Usuario de pgAdmin | `admin@admin.com` |
+| `PGADMIN_PASSWORD` | Contraseña de pgAdmin | `admin` |
+| `PGADMIN_PORT` | Puerto de pgAdmin | `5050` |
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+> Si ya tienes un PostgreSQL corriendo en el puerto 5432, cambia `DB_PORT` (por ejemplo a `5433`) para que el contenedor no choque con él.
+
+### 3. Levantar la base de datos
 
 ```bash
-$ npm install -g mau
-$ mau deploy
+docker compose -f docker-compose.dev.yml up -d
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Esto levanta dos servicios:
 
-## Resources
+- **PostgreSQL** en `localhost:${DB_PORT}`, con volumen persistente.
+- **pgAdmin** en <http://localhost:5050>. Al registrar el servidor dentro de pgAdmin usa como host `postgres` (el nombre del servicio en la red de Docker), no `localhost`.
 
-Check out a few resources that may come in handy when working with NestJS:
+### 4. Aplicar las migraciones
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm run migration:run
+```
 
-## Support
+Crea todas las tablas y carga las **categorías por defecto del sistema** (alimentación, transporte, vivienda, salario, etc.).
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### 5. Arrancar el servidor
 
-## Stay in touch
+```bash
+npm run start:dev
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+La API queda disponible en <http://localhost:3000/graphql>, con el playground de Apollo habilitado fuera de producción.
 
-## License
+## Comandos
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+| Comando | Descripción |
+| --- | --- |
+| `npm run start:dev` | Servidor en modo desarrollo (watch) |
+| `npm run start` | Servidor sin watch |
+| `npm run start:prod` | Servidor desde el build compilado |
+| `npm run build` | Compila el proyecto a `dist/` |
+| `npm run lint` | Linter (ESLint) con autofix |
+| `npm run format` | Formatea el código con Prettier |
+| `npm run test` | Tests unitarios |
+| `npm run test:e2e` | Tests end-to-end |
+| `npm run test:cov` | Cobertura de tests |
+| `npm run migration:generate -- src/migrations/<Nombre>` | Genera una migración comparando entidades vs. base de datos |
+| `npm run migration:run` | Aplica las migraciones pendientes |
+| `npm run migration:revert` | Revierte la última migración |
+| `npm run migration:show` | Lista las migraciones y su estado |
+
+## Base de datos
+
+El esquema se maneja **únicamente con migraciones** (`synchronize` está desactivado). Tras modificar una entidad:
+
+```bash
+npm run migration:generate -- src/migrations/MiCambio
+npm run migration:run
+```
+
+Las migraciones viven en `src/migrations/` y el DataSource del CLI en `src/config/data-source.ts`.
+
+### Modelo de datos
+
+- **users / authentications / refresh_tokens** — usuario, sus credenciales (local u OAuth) y sus sesiones activas.
+- **categories** — jerárquicas; `user_id NULL` marca las categorías globales del sistema.
+- **expenses / incomes** — movimientos, con moneda, tasa de cambio y recurrencia. La vista `transactions` los unifica para reportes.
+- **payment_methods / installment_plans / installments** — medios de pago y compras a cuotas.
+- **products / product_purchases / consumption_cycles** — catálogo de productos, compras y ciclos "lo empecé a usar → se acabó". La vista `product_stats` calcula duración promedio y fecha estimada de agotamiento.
+- **shopping_lists / shopping_list_items** — lista de compras, con ítems que se agregan solos cuando un producto se agota.
+- **tags / expense_tags / income_tags** — etiquetas libres sobre movimientos.
+
+## Arquitectura
+
+```
+src/
+├── auth/              # registro, login, refresh, logout, guard y decorator
+├── users/             # entidad de usuario
+├── categories/        # categorías y subcategorías
+├── transactions/      # gastos, ingresos e inflación
+├── products/          # catálogo, compras y ciclos de consumo
+├── shopping-lists/    # listas de compras
+├── payment-methods/   # medios de pago
+├── installments/      # compras a cuotas
+├── tags/              # etiquetas
+├── common/            # enums y transformers compartidos
+├── config/            # configuración de base de datos y DataSource del CLI
+└── migrations/        # migraciones de TypeORM
+```
+
+El esquema GraphQL se genera con el enfoque *code-first*: se construye a partir de los decoradores y se escribe en `src/schema.gql` (archivo generado, ignorado por git).
+
+## Autenticación
+
+Se usa el esquema **access token + refresh token**:
+
+- **Access token**: JWT firmado, válido **20 minutos**. Se envía en cada petición como `Authorization: Bearer <token>`.
+- **Refresh token**: token opaco, válido **6 meses**. Se guarda hasheado (SHA-256) en la base de datos y **rota** en cada uso: al refrescar, el token anterior queda revocado.
+
+Ver el flujo completo en [docs/API.md](docs/API.md#autenticación).
+
+## Convención de commits
+
+Se sigue *Conventional Commits*: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+
+```
+feat(products): add product queries, mutations and stats
+```
