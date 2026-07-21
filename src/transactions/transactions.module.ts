@@ -7,6 +7,8 @@ import { ExpensesResolver } from './expenses.resolver';
 import { ExpensesService } from './expenses.service';
 import { IncomesResolver } from './incomes.resolver';
 import { IncomesService } from './incomes.service';
+import { InflationResolver } from './inflation.resolver';
+import { InflationService } from './inflation.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Expense, Income, TransactionView])],
@@ -15,7 +17,9 @@ import { IncomesService } from './incomes.service';
     ExpensesResolver,
     IncomesService,
     IncomesResolver,
+    InflationService,
+    InflationResolver,
   ],
-  exports: [TypeOrmModule, ExpensesService, IncomesService],
+  exports: [TypeOrmModule, ExpensesService, IncomesService, InflationService],
 })
 export class TransactionsModule {}
