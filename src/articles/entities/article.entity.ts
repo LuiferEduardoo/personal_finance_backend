@@ -1,4 +1,10 @@
-import { Field, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
+import {
+  Field,
+  Float,
+  ID,
+  ObjectType,
+  registerEnumType,
+} from '@nestjs/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -6,12 +12,16 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Category } from '../../categories/entities/category.entity';
 import { UnitOfMeasure } from '../../common/enums/unit-of-measure.enum';
+import { ConsumptionCycle } from '../../products/entities/consumption-cycle.entity';
+import { ProductPurchase } from '../../products/entities/product-purchase.entity';
+import { NumericTransformer } from '../../common/transformers/numeric.transformer';
 import { User } from '../../users/entities/user.entity';
 
 export enum ArticleType {
@@ -23,11 +33,14 @@ export enum ArticleType {
 registerEnumType(ArticleType, { name: 'ArticleType' });
 
 // catálogo general de lo que el usuario compra: productos, servicios, etc.
-// es el concepto base; un `product` (inventario) referencia a un article.
+// los de tipo producto llevan además datos de inventario (stock, ciclos).
 @ObjectType()
 @Entity('articles')
 @Unique('articles_name_unique', ['userId', 'name', 'type'])
 @Index('idx_articles_user', ['userId'], { where: '"is_active"' })
+@Index('idx_articles_barcode', ['userId', 'barcode'], {
+  where: '"barcode" IS NOT NULL',
+})
 export class Article {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -77,6 +90,27 @@ export class Article {
   @Column({ type: 'text', nullable: true })
   brand: string | null;
 
+  // --- inventario (solo relevante para artículos tipo producto) ---
+  @Field(() => Float, { nullable: true })
+  @Column({
+    name: 'package_size',
+    type: 'numeric',
+    precision: 12,
+    scale: 3,
+    nullable: true,
+    transformer: new NumericTransformer(),
+  })
+  packageSize: number | null;
+
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'text', nullable: true })
+  barcode: string | null;
+
+  // false = bien durable, sin ciclo de agotamiento
+  @Field()
+  @Column({ name: 'is_consumable', default: true })
+  isConsumable: boolean;
+
   @Field()
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
@@ -84,6 +118,12 @@ export class Article {
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+
+  @OneToMany(() => ProductPurchase, (purchase) => purchase.article)
+  purchases: ProductPurchase[];
+
+  @OneToMany(() => ConsumptionCycle, (cycle) => cycle.article)
+  consumptionCycles: ConsumptionCycle[];
 
   @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

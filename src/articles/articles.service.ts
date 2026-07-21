@@ -50,9 +50,18 @@ export class ArticlesService {
     return this.articlesRepository.save(article);
   }
 
-  async update(userId: string, input: UpdateArticleInput): Promise<Article> {
-    const article = await this.findOne(input.id, userId);
+  update(userId: string, input: UpdateArticleInput): Promise<Article> {
     const { id, ...changes } = input;
+    return this.applyUpdate(userId, id, changes);
+  }
+
+  // aplica cambios parciales a un artículo; reutilizado por el CRUD de producto
+  async applyUpdate(
+    userId: string,
+    id: string,
+    changes: Partial<Article>,
+  ): Promise<Article> {
+    const article = await this.findOne(id, userId);
     Object.assign(article, changes);
     await this.articlesRepository.save(article);
     return this.findOne(id, userId);
