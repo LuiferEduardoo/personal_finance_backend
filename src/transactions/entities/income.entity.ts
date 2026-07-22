@@ -45,12 +45,13 @@ export class Income {
   @Column({ name: 'category_id', type: 'uuid', nullable: true })
   categoryId: string | null;
 
-  // cuenta destino
+  // cuenta destino a la que entra el ingreso (expuesta como "account")
+  @Field(() => PaymentMethod, { name: 'account', nullable: true })
   @ManyToOne(() => PaymentMethod, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'payment_method_id' })
   paymentMethod: PaymentMethod | null;
 
-  @Field(() => ID, { nullable: true })
+  @Field(() => ID, { name: 'accountId', nullable: true })
   @Column({ name: 'payment_method_id', type: 'uuid', nullable: true })
   paymentMethodId: string | null;
 

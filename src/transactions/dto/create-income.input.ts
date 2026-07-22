@@ -30,9 +30,9 @@ export class CreateIncomeInput {
 
   @Field(() => ID, {
     nullable: true,
-    description: 'Cuenta destino',
+    description: 'Cuenta destino a la que entra el ingreso',
   })
-  paymentMethodId?: string;
+  accountId?: string;
 
   @Field({ nullable: true })
   notes?: string;

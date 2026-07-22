@@ -31,12 +31,12 @@ export class IncomesService {
     if (filter?.categoryId) {
       where.categoryId = filter.categoryId;
     }
-    if (filter?.paymentMethodId) {
-      where.paymentMethodId = filter.paymentMethodId;
+    if (filter?.accountId) {
+      where.paymentMethodId = filter.accountId;
     }
     return this.incomesRepository.find({
       where,
-      relations: { category: true },
+      relations: { category: true, paymentMethod: true },
       order: { occurredOn: 'DESC', createdAt: 'DESC' },
     });
   }
@@ -44,7 +44,7 @@ export class IncomesService {
   async findOne(id: string): Promise<Income> {
     const income = await this.incomesRepository.findOne({
       where: { id },
-      relations: { category: true },
+      relations: { category: true, paymentMethod: true },
     });
     if (!income) {
       throw new NotFoundException(`Ingreso ${id} no encontrado`);
@@ -53,14 +53,21 @@ export class IncomesService {
   }
 
   async create(input: CreateIncomeInput): Promise<Income> {
-    const income = this.incomesRepository.create(input);
+    const { accountId, ...rest } = input;
+    const income = this.incomesRepository.create({
+      ...rest,
+      paymentMethodId: accountId ?? null,
+    });
     const saved = await this.incomesRepository.save(income);
     return this.findOne(saved.id);
   }
 
   async update(input: UpdateIncomeInput): Promise<Income> {
     const income = await this.findOne(input.id);
-    const { id, ...changes } = input;
+    const { id, accountId, ...changes } = input;
+    if (accountId !== undefined) {
+      income.paymentMethodId = accountId;
+    }
     Object.assign(income, changes);
     await this.incomesRepository.save(income);
     return this.findOne(id);

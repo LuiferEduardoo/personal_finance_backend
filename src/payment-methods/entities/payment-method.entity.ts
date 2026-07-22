@@ -1,4 +1,12 @@
 import {
+  Field,
+  Float,
+  ID,
+  Int,
+  ObjectType,
+  registerEnumType,
+} from '@nestjs/graphql';
+import {
   Check,
   Column,
   CreateDateColumn,
@@ -21,6 +29,11 @@ export enum PaymentMethodType {
   OTHER = 'other',
 }
 
+registerEnumType(PaymentMethodType, { name: 'PaymentMethodType' });
+
+// cuenta de la que salen gastos y a la que entran ingresos
+// (efectivo, cuenta bancaria, tarjeta, billetera, etc.)
+@ObjectType('Account')
 @Entity('payment_methods')
 @Unique('payment_methods_name_unique', ['userId', 'name'])
 @Check(
@@ -41,6 +54,7 @@ export enum PaymentMethodType {
 )
 @Index('idx_payment_methods_user', ['userId'], { where: '"is_active"' })
 export class PaymentMethod {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -50,13 +64,16 @@ export class PaymentMethod {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
+  @Field(() => ID)
   @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
-  // "Bancolombia Debit", "Visa Falabella"
+  // "Bancolombia Debit", "Visa Falabella", "Efectivo"
+  @Field()
   @Column({ type: 'text' })
   name: string;
 
+  @Field(() => PaymentMethodType)
   @Column({
     type: 'enum',
     enum: PaymentMethodType,
@@ -64,16 +81,20 @@ export class PaymentMethod {
   })
   type: PaymentMethodType;
 
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   issuer: string | null;
 
+  @Field(() => String, { nullable: true })
   @Column({ name: 'last_four', type: 'char', length: 4, nullable: true })
   lastFour: string | null;
 
+  @Field()
   @Column({ type: 'char', length: 3, default: 'COP' })
   currency: string;
 
   // solo para tarjetas de crédito
+  @Field(() => Float, { nullable: true })
   @Column({
     name: 'credit_limit',
     type: 'numeric',
@@ -84,12 +105,15 @@ export class PaymentMethod {
   })
   creditLimit: number | null;
 
+  @Field(() => Int, { nullable: true })
   @Column({ name: 'statement_day', type: 'smallint', nullable: true })
   statementDay: number | null;
 
+  @Field(() => Int, { nullable: true })
   @Column({ name: 'due_day', type: 'smallint', nullable: true })
   dueDay: number | null;
 
+  @Field(() => Float, { nullable: true })
   @Column({
     name: 'monthly_rate',
     type: 'numeric',
@@ -100,6 +124,7 @@ export class PaymentMethod {
   })
   monthlyRate: number | null;
 
+  @Field(() => Float, { description: 'Saldo inicial de la cuenta' })
   @Column({
     name: 'opening_balance',
     type: 'numeric',
@@ -110,9 +135,11 @@ export class PaymentMethod {
   })
   openingBalance: number;
 
+  @Field()
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
