@@ -1,6 +1,6 @@
 import { Field, Float, ID, InputType } from '@nestjs/graphql';
-import { CreateArticleInput } from '../../articles/dto/create-article.input';
 import { Recurrence } from '../../common/enums/recurrence.enum';
+import { ExpenseItemInput } from './expense-item.input';
 
 @InputType()
 export class CreateExpenseInput {
@@ -11,28 +11,19 @@ export class CreateExpenseInput {
   @Field()
   description: string;
 
-  @Field(() => Float)
-  amount: number;
-
-  @Field(() => ID, {
-    nullable: true,
-    description: 'Artículo existente comprado en este gasto',
-  })
-  articleId?: string;
-
-  @Field(() => CreateArticleInput, {
-    nullable: true,
-    description:
-      'Crear el artículo (producto/servicio/otro) en el mismo gasto. Si es tipo producto, entra al inventario.',
-  })
-  newArticle?: CreateArticleInput;
-
   @Field(() => Float, {
     nullable: true,
-    defaultValue: 1,
-    description: 'Cantidad del artículo comprada',
+    description:
+      'Requerido si el gasto no tiene ítems; si hay ítems se ignora y se calcula como la suma',
   })
-  quantity?: number;
+  amount?: number;
+
+  @Field(() => [ExpenseItemInput], {
+    nullable: true,
+    description:
+      'Artículos comprados (opcional). El importe = suma de sus subtotales.',
+  })
+  items?: ExpenseItemInput[];
 
   @Field({ nullable: true, defaultValue: 'COP' })
   currency?: string;
@@ -46,8 +37,11 @@ export class CreateExpenseInput {
   @Field(() => ID, { nullable: true })
   categoryId?: string;
 
-  @Field(() => ID, { nullable: true })
-  paymentMethodId?: string;
+  @Field(() => ID, {
+    nullable: true,
+    description: 'Cuenta de la que sale el gasto',
+  })
+  accountId?: string;
 
   @Field({ nullable: true })
   merchant?: string;

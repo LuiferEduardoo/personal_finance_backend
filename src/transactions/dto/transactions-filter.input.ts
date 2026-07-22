@@ -12,5 +12,5 @@ export class TransactionsFilterInput {
   categoryId?: string;
 
   @Field(() => ID, { nullable: true })
-  paymentMethodId?: string;
+  accountId?: string;
 }

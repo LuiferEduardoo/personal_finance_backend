@@ -9,10 +9,10 @@ import {
   JoinTable,
   ManyToMany,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Article } from '../../articles/entities/article.entity';
 import { Category } from '../../categories/entities/category.entity';
 import { Recurrence } from '../../common/enums/recurrence.enum';
 import { NumericTransformer } from '../../common/transformers/numeric.transformer';
@@ -21,6 +21,7 @@ import { InstallmentPlan } from '../../installments/entities/installment-plan.en
 import { PaymentMethod } from '../../payment-methods/entities/payment-method.entity';
 import { Tag } from '../../tags/entities/tag.entity';
 import { User } from '../../users/entities/user.entity';
+import { ExpenseItem } from './expense-item.entity';
 
 @ObjectType()
 @Entity('expenses')
@@ -49,11 +50,13 @@ export class Expense {
   @Column({ name: 'category_id', type: 'uuid', nullable: true })
   categoryId: string | null;
 
+  // cuenta de la que sale el gasto (expuesta como "account" en GraphQL)
+  @Field(() => PaymentMethod, { name: 'account', nullable: true })
   @ManyToOne(() => PaymentMethod, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'payment_method_id' })
   paymentMethod: PaymentMethod | null;
 
-  @Field(() => ID, { nullable: true })
+  @Field(() => ID, { name: 'accountId', nullable: true })
   @Index('idx_expenses_payment_method')
   @Column({ name: 'payment_method_id', type: 'uuid', nullable: true })
   paymentMethodId: string | null;
@@ -72,16 +75,11 @@ export class Expense {
   @Column({ name: 'installment_id', type: 'uuid', nullable: true })
   installmentId: string | null;
 
-  // artículo comprado en este gasto (para inflación de precios)
-  @Field(() => Article, { nullable: true })
-  @ManyToOne(() => Article, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'article_id' })
-  article: Article | null;
-
-  @Field(() => ID, { nullable: true })
-  @Index('idx_expenses_article')
-  @Column({ name: 'article_id', type: 'uuid', nullable: true })
-  articleId: string | null;
+  // líneas del gasto: cada una un artículo con su precio y cantidad.
+  // el importe (amount) = suma de los subtotales de los ítems.
+  @Field(() => [ExpenseItem])
+  @OneToMany(() => ExpenseItem, (item) => item.expense, { cascade: true })
+  items: ExpenseItem[];
 
   @Field()
   @Column({ type: 'text' })
@@ -95,16 +93,6 @@ export class Expense {
     transformer: new NumericTransformer(),
   })
   amount: number;
-
-  @Field(() => Float, { description: 'Cantidad del artículo comprada' })
-  @Column({
-    type: 'numeric',
-    precision: 12,
-    scale: 3,
-    default: 1,
-    transformer: new NumericTransformer(),
-  })
-  quantity: number;
 
   @Field()
   @Column({ type: 'char', length: 3, default: 'COP' })
@@ -161,12 +149,4 @@ export class Expense {
   @Field()
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
-
-  @Field(() => Float, {
-    nullable: true,
-    description: 'Precio unitario del artículo (amount / quantity)',
-  })
-  get unitPrice(): number | null {
-    return this.quantity ? this.amount / this.quantity : null;
-  }
 }

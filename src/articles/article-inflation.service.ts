@@ -60,23 +60,24 @@ export class ArticleInflationService {
 
     const rows: PriceRow[] = await this.expensesRepository.query(
       `
-        SELECT e."article_id", a."name" AS article_name,
+        SELECT ei."article_id", a."name" AS article_name,
                a."category_id", cat."parent_id" AS category_parent_id,
                cat."name" AS category_name, catp."name" AS category_parent_name,
                to_char(date_trunc('month', e."occurred_on"), 'YYYY-MM') AS period,
-               SUM(e."amount" * e."exchange_rate") AS total_base,
-               SUM(e."quantity") AS total_qty
-        FROM "expenses" e
-        JOIN "articles" a ON a."id" = e."article_id"
+               SUM(ei."unit_price" * ei."quantity" * e."exchange_rate") AS total_base,
+               SUM(ei."quantity") AS total_qty
+        FROM "expense_items" ei
+        JOIN "expenses" e ON e."id" = ei."expense_id"
+        JOIN "articles" a ON a."id" = ei."article_id"
         LEFT JOIN "categories" cat ON cat."id" = a."category_id"
         LEFT JOIN "categories" catp ON catp."id" = cat."parent_id"
-        WHERE e."user_id" = $1 AND e."article_id" IS NOT NULL
-          AND ($2::uuid IS NULL OR e."article_id" = $2::uuid)
+        WHERE e."user_id" = $1 AND ei."article_id" IS NOT NULL
+          AND ($2::uuid IS NULL OR ei."article_id" = $2::uuid)
           AND ($3::uuid IS NULL OR a."category_id" = $3::uuid OR cat."parent_id" = $3::uuid)
           AND ($4::text IS NULL OR a."type"::text = $4)
           AND ($5::text IS NULL OR e."occurred_on" >= to_date($5, 'YYYY-MM'))
           AND ($6::text IS NULL OR e."occurred_on" < to_date($6, 'YYYY-MM') + INTERVAL '1 month')
-        GROUP BY e."article_id", a."name", a."category_id", cat."parent_id",
+        GROUP BY ei."article_id", a."name", a."category_id", cat."parent_id",
                  cat."name", catp."name", period
         ORDER BY period
       `,
