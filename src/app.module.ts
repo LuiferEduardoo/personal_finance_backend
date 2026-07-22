@@ -3,6 +3,7 @@ import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GraphQLModule } from '@nestjs/graphql';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppResolver } from './app.resolver';
@@ -15,6 +16,7 @@ import { databaseConfig } from './config/database.config';
 import { InstallmentsModule } from './installments/installments.module';
 import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
 import { ProductsModule } from './products/products.module';
+import { RecurringExpensesModule } from './recurring-expenses/recurring-expenses.module';
 import { ShoppingListsModule } from './shopping-lists/shopping-lists.module';
 import { TagsModule } from './tags/tags.module';
 import { TransactionsModule } from './transactions/transactions.module';
@@ -29,6 +31,7 @@ import { UsersModule } from './users/users.module';
       inject: [ConfigService],
       useFactory: databaseConfig,
     }),
+    ScheduleModule.forRoot(),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
@@ -46,6 +49,7 @@ import { UsersModule } from './users/users.module';
     ProductsModule,
     ShoppingListsModule,
     ArticlesModule,
+    RecurringExpensesModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],
