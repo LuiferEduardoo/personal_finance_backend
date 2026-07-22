@@ -135,6 +135,20 @@ export class PaymentMethod {
   })
   openingBalance: number;
 
+  // saldo actual (saldo inicial + ingresos − gastos + transferencias).
+  // en cuentas de crédito, negativo = deuda.
+  @Field(() => Float, {
+    description: 'Saldo actual (negativo = deuda en crédito)',
+  })
+  @Column({
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: new NumericTransformer(),
+  })
+  balance: number;
+
   @Field()
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
@@ -142,4 +156,16 @@ export class PaymentMethod {
   @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  // cupo disponible en tarjetas de crédito = creditLimit + balance (balance negativo)
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Cupo disponible (solo tarjetas de crédito)',
+  })
+  get availableCredit(): number | null {
+    if (this.type !== PaymentMethodType.CREDIT || this.creditLimit == null) {
+      return null;
+    }
+    return this.creditLimit + this.balance;
+  }
 }
