@@ -13,8 +13,10 @@ En desarrollo está disponible el playground de Apollo abriendo esa misma URL en
 - [Autenticación](#autenticación)
 - [Perfil](#perfil)
 - [Categorías](#categorías)
+- [Cuentas](#cuentas)
 - [Gastos](#gastos)
 - [Ingresos](#ingresos)
+- [Gastos recurrentes](#gastos-recurrentes)
 - [Artículos](#artículos)
 - [Inflación](#inflación)
 - [Productos](#productos)
@@ -190,6 +192,36 @@ mutation { removeCategory(id: "<id>") }
 
 ---
 
+## Cuentas
+
+Una **cuenta** (`Account`) es de donde salen los gastos y a donde entran los ingresos: efectivo, cuenta bancaria, tarjeta, billetera, etc. Todos los endpoints son 🔒.
+
+### 🔒 `accounts` — listar
+
+```graphql
+query {
+  accounts(includeInactive: false) {
+    id name type currency openingBalance isActive
+  }
+}
+```
+
+### 🔒 `createAccount` / `updateAccount` / `removeAccount`
+
+```graphql
+mutation {
+  createAccount(input: {
+    name: "Bancolombia", type: BANK_TRANSFER, currency: "COP", openingBalance: 500000
+  }) { id name type openingBalance }
+}
+mutation { updateAccount(input: { id: "<id>", name: "Bancolombia Ahorros", isActive: false }) { id name } }
+mutation { removeAccount(id: "<id>") }
+```
+
+Campos de tarjeta de crédito (solo cuando `type: CREDIT`): `creditLimit`, `statementDay`, `dueDay`, `monthlyRate`. Al borrar una cuenta, los gastos/ingresos que la referencian quedan con cuenta nula; si tiene **planes de cuotas**, el borrado falla con `BAD_REQUEST`. También existe `account(id)`.
+
+---
+
 ## Gastos
 
 ### `expenses` — listar con filtros
@@ -216,54 +248,63 @@ query { expense(id: "<id>") { id description amount category { name } } }
 
 ### `createExpense` — registrar gasto
 
+Un gasto puede tener **varios artículos** (`items`) o ninguno. El importe se calcula:
+- **Sin ítems**: se envía `amount` (obligatorio).
+- **Con ítems**: `amount` = suma de `unitPrice * quantity` de cada ítem (se ignora el `amount` que se envíe). Con **un solo ítem** la categoría se hereda del artículo si no se envía `categoryId`.
+
+Cada ítem usa **uno** de `articleId` / `newArticle`. Si el artículo es **tipo producto**, entra al inventario (`products`, `inStock`, ciclo de consumo — ver [Compras y ciclos de consumo](#compras-y-ciclos-de-consumo)).
+
 ```graphql
 mutation {
   createExpense(input: {
     userId: "<userId>"
     description: "Mercado semana"
-    amount: 185000
     occurredOn: "2026-07-15"
+    accountId: "<idCuenta>"
     categoryId: "<id>"
-    paymentMethodId: "<id>"
-    merchant: "Éxito"
-    notes: "compra mensual"
-    receiptUrl: "https://..."
-    currency: "COP"
-    exchangeRate: 1
-    recurrence: ONCE
-    quantity: 10
-    newArticle: { name: "Pan", type: PRODUCT, categoryId: "<id>" }
+    items: [
+      { newArticle: { name: "Pan", type: PRODUCT }, unitPrice: 2000, quantity: 10 },
+      { articleId: "<idLeche>", unitPrice: 4500, quantity: 2 }
+    ]
   }) {
-    id description amount unitPrice quantity category { name } article { id name type }
+    id description amount account { name }
+    items { unitPrice quantity subtotal article { name } }
   }
 }
 ```
 
-Obligatorios: `userId`, `description`, `amount`, `occurredOn`. `amount` debe ser mayor que 0.
+Gasto simple sin artículos:
 
-**Asociación con un artículo** (opcional): el gasto puede vincularse a un artículo con una `quantity`; de ahí sale el `unitPrice` (`amount / quantity`) que alimenta la inflación real (ver [Inflación](#inflación)). Se usa **uno** de:
-- `articleId`: vincular un artículo ya existente del catálogo.
-- `newArticle`: crear el artículo (con su `type`: `PRODUCT` / `SERVICE` / `OTHER`) en el mismo gasto.
+```graphql
+mutation {
+  createExpense(input: {
+    userId: "<userId>", description: "Taxi", amount: 15000,
+    occurredOn: "2026-07-15", accountId: "<idCuenta>"
+  }) { id amount }
+}
+```
 
-Enviar ambos da `BAD_REQUEST`. Si el artículo es **tipo producto**, el gasto se integra con el inventario: crea/vincula el `product` (aparece en `products`), registra la compra y **reabre el ciclo de consumo** (`inStock: true`) si estaba agotado — ver [Compras y ciclos de consumo](#compras-y-ciclos-de-consumo).
+Obligatorios: `userId`, `description`, `occurredOn`, y `amount` **o** al menos un ítem (`BAD_REQUEST` si faltan ambos). El gasto sale de la cuenta indicada en `accountId` (ver [Cuentas](#cuentas)).
 
 ### `updateExpense` / `removeExpense`
 
 ```graphql
-mutation { updateExpense(input: { id: "<id>", amount: 192500, notes: "ajustado" }) { amount notes } }
+mutation { updateExpense(input: { id: "<id>", notes: "ajustado" }) { amount notes } }
 mutation { removeExpense(id: "<id>") }
 ```
+
+Enviar `items` en `updateExpense` **reemplaza** todos los ítems y recalcula el importe (no re-dispara el inventario).
 
 ---
 
 ## Ingresos
 
-Funcionan igual que los gastos, con el campo adicional `source` (de dónde viene el dinero) y `paymentMethodId` como cuenta destino.
+Funcionan igual que los gastos, con el campo adicional `source` (de dónde viene el dinero) y `accountId` como **cuenta destino** a la que entra el dinero.
 
 ```graphql
 query {
   incomes(userId: "<userId>", filter: { from: "2026-01-01" }) {
-    id description source amount occurredOn recurrence category { name }
+    id description source amount occurredOn recurrence category { name } account { name }
   }
 }
 
@@ -275,12 +316,62 @@ mutation {
     amount: 4500000
     occurredOn: "2026-07-01"
     categoryId: "<id>"
+    accountId: "<idCuenta>"
     recurrence: MONTHLY
-  }) { id amount source }
+  }) { id amount source account { name } }
 }
 ```
 
 También existen `income(id)`, `updateIncome(input)` y `removeIncome(id)`.
+
+---
+
+## Gastos recurrentes
+
+Una **plantilla** que genera un gasto real cada cierto periodo (semanal, mensual, etc.). Un job diario materializa los que vencen; también se pueden generar a demanda. Todos los endpoints son 🔒.
+
+### 🔒 `recurringExpenses` — listar plantillas
+
+```graphql
+query {
+  recurringExpenses(includeInactive: false) {
+    id description recurrence nextRunOn endOn isActive account { name }
+    items { unitPrice quantity article { name } }
+  }
+}
+```
+
+### 🔒 `createRecurringExpense` — crear plantilla
+
+```graphql
+mutation {
+  createRecurringExpense(input: {
+    description: "Arriendo"
+    amount: 1200000
+    recurrence: MONTHLY
+    startOn: "2026-08-01"
+    accountId: "<idCuenta>"
+    categoryId: "<id>"
+  }) { id description recurrence nextRunOn }
+}
+```
+
+Acepta lo mismo que un gasto: `amount` **o** `items` (artículos con precio/cantidad), `accountId`, `categoryId`, `merchant`, `notes`. `recurrence` no puede ser `ONCE` (`BAD_REQUEST`). `startOn` es la primera ocurrencia; `endOn` (opcional) desactiva la plantilla al superarse. `nextRunOn` arranca en `startOn`.
+
+### 🔒 `updateRecurringExpense` / `removeRecurringExpense`
+
+```graphql
+mutation { updateRecurringExpense(input: { id: "<id>", amount: 1300000, isActive: false }) { id amount } }
+mutation { removeRecurringExpense(id: "<id>") }
+```
+
+### 🔒 `runDueRecurringExpenses` — generar los vencidos
+
+```graphql
+mutation { runDueRecurringExpenses }
+```
+
+Materializa todos los gastos recurrentes con `nextRunOn <= hoy` (haciendo *catch-up* si hay varios periodos pendientes), avanza `nextRunOn` según la frecuencia y desactiva los que superan `endOn`. Devuelve cuántos gastos se crearon. Lo ejecuta también un **job diario** automáticamente (3am), así que llamarlo es opcional (útil para pruebas o forzar la generación).
 
 ---
 
@@ -585,6 +676,10 @@ query { health }
 ### `ArticleType`
 
 `PRODUCT` · `SERVICE` · `OTHER`
+
+### `PaymentMethodType` (tipo de cuenta)
+
+`CASH` · `DEBIT` · `CREDIT` · `BANK_TRANSFER` · `DIGITAL_WALLET` · `OTHER`
 
 ### `UnitOfMeasure`
 
