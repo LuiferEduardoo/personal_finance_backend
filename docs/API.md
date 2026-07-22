@@ -196,12 +196,14 @@ mutation { removeCategory(id: "<id>") }
 
 Una **cuenta** (`Account`) es de donde salen los gastos y a donde entran los ingresos: efectivo, cuenta bancaria, tarjeta, billetera, etc. Todos los endpoints son 🔒.
 
+Cada cuenta tiene un **saldo** (`balance`) que se mantiene automáticamente: los ingresos lo suben, los gastos lo bajan y las transferencias lo mueven entre cuentas. En tarjetas de crédito el `balance` **negativo es la deuda** y `availableCredit = creditLimit + balance` es el cupo disponible.
+
 ### 🔒 `accounts` — listar
 
 ```graphql
 query {
   accounts(includeInactive: false) {
-    id name type currency openingBalance isActive
+    id name type currency openingBalance balance availableCredit isActive
   }
 }
 ```
@@ -212,13 +214,42 @@ query {
 mutation {
   createAccount(input: {
     name: "Bancolombia", type: BANK_TRANSFER, currency: "COP", openingBalance: 500000
-  }) { id name type openingBalance }
+  }) { id name type openingBalance balance }
 }
 mutation { updateAccount(input: { id: "<id>", name: "Bancolombia Ahorros", isActive: false }) { id name } }
 mutation { removeAccount(id: "<id>") }
 ```
 
-Campos de tarjeta de crédito (solo cuando `type: CREDIT`): `creditLimit`, `statementDay`, `dueDay`, `monthlyRate`. Al borrar una cuenta, los gastos/ingresos que la referencian quedan con cuenta nula; si tiene **planes de cuotas**, el borrado falla con `BAD_REQUEST`. También existe `account(id)`.
+Al crear una cuenta, `balance` arranca en `openingBalance`. Campos de tarjeta de crédito (solo cuando `type: CREDIT`): `creditLimit` (el **cupo**), `statementDay`, `dueDay`, `monthlyRate`. Al borrar una cuenta, los gastos/ingresos que la referencian quedan con cuenta nula; si tiene **planes de cuotas** o **transferencias**, el borrado falla con `BAD_REQUEST`. También existe `account(id)`.
+
+### 🔒 Control de cupo (tarjetas de crédito)
+
+Al registrar un gasto contra una cuenta `CREDIT`, el backend rechaza (`BAD_REQUEST`) si el gasto excede el cupo disponible, es decir si `monto > creditLimit + balance`. Un gasto que llega justo al tope (deja `availableCredit: 0`) sí se permite.
+
+### 🔒 `transferBetweenAccounts` — transferir saldo / pagar tarjeta
+
+```graphql
+mutation {
+  transferBetweenAccounts(input: {
+    fromAccountId: "<idOrigen>", toAccountId: "<idDestino>", amount: 50000, note: "pago tarjeta"
+  }) {
+    amount occurredOn
+    fromAccount { name balance }
+    toAccount { name balance availableCredit }
+  }
+}
+```
+
+Baja el saldo de la cuenta origen y sube el de la destino, de forma atómica. **Transferir a una cuenta de crédito paga la tarjeta** (reduce la deuda → `balance` menos negativo, `availableCredit` sube). Valida que ambas cuentas sean del usuario, que sean distintas, `amount > 0` y **fondos suficientes en el origen** (para cuentas de activo; para origen crédito se valida el cupo). `occurredOn` es opcional (hoy por defecto).
+
+### 🔒 `accountTransfers` / `recalculateAccountBalance`
+
+```graphql
+query { accountTransfers(accountId: "<id>") { amount occurredOn fromAccount { name } toAccount { name } } }
+mutation { recalculateAccountBalance(id: "<id>") { name balance } }
+```
+
+`accountTransfers` lista las transferencias (opcional por cuenta). `recalculateAccountBalance` recomputa el `balance` desde los movimientos (`openingBalance` + ingresos − gastos + transferencias) — útil como corrección ante cualquier descuadre.
 
 ---
 
@@ -711,7 +742,7 @@ Los errores siguen el formato estándar de GraphQL, con el código en `extension
 | Código | Cuándo ocurre |
 | --- | --- |
 | `UNAUTHENTICATED` | Falta el token, está expirado o es inválido; credenciales incorrectas en `login` |
-| `BAD_REQUEST` | Datos inválidos: formato de periodo incorrecto, modificar categorías del sistema, marcar como agotado un artículo sin ciclo abierto, enviar `articleId` y `newArticle` a la vez |
+| `BAD_REQUEST` | Datos inválidos: formato de periodo incorrecto, modificar categorías del sistema, marcar como agotado un artículo sin ciclo abierto, enviar `articleId` y `newArticle` a la vez, gasto que **excede el cupo** de la tarjeta, transferencia con **fondos insuficientes** o a la misma cuenta |
 | `NOT_FOUND` | El recurso no existe o no pertenece al usuario |
 | `CONFLICT` | El email ya está registrado |
 | `GRAPHQL_VALIDATION_FAILED` | El query no cumple el esquema (campo inexistente, tipo incorrecto) |
