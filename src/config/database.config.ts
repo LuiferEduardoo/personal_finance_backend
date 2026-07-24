@@ -10,6 +10,8 @@ export const databaseConfig = (
   username: configService.get<string>('DB_USERNAME', 'postgres'),
   password: configService.get<string>('DB_PASSWORD', ''),
   database: configService.get<string>('DB_NAME', 'personal_finance'),
+  // esquema explícito (algunas BD gestionadas dejan el search_path vacío)
+  schema: configService.get<string>('DB_SCHEMA', 'public'),
   autoLoadEntities: true,
   // el esquema se maneja con migraciones (npm run migration:run)
   synchronize: false,

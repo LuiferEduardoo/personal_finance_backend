@@ -49,6 +49,7 @@ DB_PORT=5432
 DB_USERNAME=...
 DB_PASSWORD=...
 DB_NAME=personal_finance
+DB_SCHEMA=public                      # esquema; cámbialo si tu proveedor usa otro
 
 JWT_SECRET=<un secreto largo y aleatorio>
 JWT_ACCESS_EXPIRATION=20m
