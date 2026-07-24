@@ -49,7 +49,7 @@ DB_PORT=5432
 DB_USERNAME=...
 DB_PASSWORD=...
 DB_NAME=personal_finance
-DB_SCHEMA=public                      # esquema; cámbialo si tu proveedor usa otro
+DB_SCHEMA=public                      # esquema; ver nota de Filess.io abajo
 
 JWT_SECRET=<un secreto largo y aleatorio>
 JWT_ACCESS_EXPIRATION=20m
@@ -59,6 +59,8 @@ CORS_ORIGINS=https://tu-frontend.com
 ```
 
 4. Asegurar que el servidor tenga **acceso de red a la base de datos** (firewall / lista blanca de IP en el proveedor).
+
+> 🐘 **Filess.io (u otras BD gestionadas sin `public`)**: Filess no da acceso al esquema `public`; cada base tiene su propio esquema **con el nombre de la base de datos**. Ahí debes poner **`DB_SCHEMA` = el mismo valor de `DB_NAME`** (el nombre que te dio Filess). Sin eso, las migraciones fallan con `no schema has been selected to create in`. La app fija el `schema` y el `search_path` de la conexión, así que con `DB_SCHEMA` correcto todo funciona.
 
 > El contenedor usa la red por defecto de Docker (bridge con salida a internet), suficiente para llegar a una BD externa. No se necesita red de Docker propia.
 
