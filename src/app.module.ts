@@ -14,6 +14,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { formatError } from './common/graphql/format-error';
 import { databaseConfig } from './config/database.config';
 import { InstallmentsModule } from './installments/installments.module';
+import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
 import { ProductsModule } from './products/products.module';
 import { RecurringExpensesModule } from './recurring-expenses/recurring-expenses.module';
@@ -50,6 +51,7 @@ import { UsersModule } from './users/users.module';
     ShoppingListsModule,
     ArticlesModule,
     RecurringExpensesModule,
+    InvoicesModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],
