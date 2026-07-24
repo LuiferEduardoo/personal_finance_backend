@@ -23,6 +23,15 @@ Archivos:
 
 > El push a ghcr en el workflow usa el `GITHUB_TOKEN` automático (con `packages: write`); no requiere secret. `GHCR_TOKEN` es solo para el **pull** desde el servidor.
 
+### Acceso del servidor al package (importante)
+
+Las imágenes de ghcr nacen **privadas**. El servidor necesita poder descargarlas, así que elige **una** de estas dos opciones:
+
+- **Package privado (recomendado)**: crea un **PAT** (GitHub → Settings → Developer settings → Personal access tokens) con scope **`read:packages`** y guárdalo como el secret `GHCR_TOKEN`. El deploy hace `docker login` con él antes del `pull`.
+- **Package público**: en GitHub → tu perfil → **Packages** → `personal_finance_backend` → **Package settings** → *Change visibility* → **Public**. Así **no** necesitas `GHCR_TOKEN` (déjalo sin definir; el deploy salta el login y hace el `pull` directo).
+
+Si `GHCR_TOKEN` está vacío **y** el package es privado, el `pull` fallará con "denied" (por eso el error anterior de login: token vacío).
+
 ## Preparación del servidor (una sola vez)
 
 1. Instalar **Docker**.

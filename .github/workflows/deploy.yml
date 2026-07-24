@@ -69,10 +69,18 @@ jobs:
             IMAGE="${{ needs.build.outputs.image }}:${{ github.sha }}"
             APP_PORT="${{ secrets.APP_PORT }}"
             APP_PORT="${APP_PORT:-3000}"
+            GHCR_TOKEN="${{ secrets.GHCR_TOKEN }}"
 
-            # el servidor se autentica y descarga el package desde ghcr
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            docker pull "$IMAGE"
+            # login solo si hay token (package privado). Sin token se asume público.
+            if [ -n "$GHCR_TOKEN" ]; then
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            fi
+
+            # el servidor descarga el package
+            if ! docker pull "$IMAGE"; then
+              echo "No se pudo descargar la imagen. Si el package es privado, define el secret GHCR_TOKEN (PAT con read:packages); si es público, verifica el nombre."
+              exit 1
+            fi
 
             # reemplaza el contenedor por el de la imagen nueva
             docker rm -f "$CONTAINER" 2>/dev/null || true
