@@ -58,7 +58,7 @@ export class SeedDefaultCategories1784409000000 implements MigrationInterface {
     }
     for (const [parentId, name] of expenseChildren) {
       await queryRunner.query(
-        `INSERT INTO "categories" ("id", "user_id", "parent_id", "name", "kind") VALUES (uuid_generate_v4(), NULL, $1, $2, 'expense')`,
+        `INSERT INTO "categories" ("id", "user_id", "parent_id", "name", "kind") VALUES (gen_random_uuid(), NULL, $1, $2, 'expense')`,
         [parentId, name],
       );
     }

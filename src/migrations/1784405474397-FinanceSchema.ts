@@ -4,25 +4,25 @@ export class FinanceSchema1784405474397 implements MigrationInterface {
     name = 'FinanceSchema1784405474397'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`CREATE TYPE "public"."transaction_kind" AS ENUM('expense', 'income')`);
-        await queryRunner.query(`CREATE TABLE "categories" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid, "parent_id" uuid, "name" text NOT NULL, "kind" "public"."transaction_kind" NOT NULL, "icon" text, "color" text, "is_active" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "categories_name_unique" UNIQUE ("user_id", "parent_id", "name"), CONSTRAINT "categories_no_self_ref" CHECK ("id" <> "parent_id"), CONSTRAINT "PK_24dbc6126a28ff948da33e97d3b" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TYPE "transaction_kind" AS ENUM('expense', 'income')`);
+        await queryRunner.query(`CREATE TABLE "categories" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid, "parent_id" uuid, "name" text NOT NULL, "kind" "transaction_kind" NOT NULL, "icon" text, "color" text, "is_active" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "categories_name_unique" UNIQUE ("user_id", "parent_id", "name"), CONSTRAINT "categories_no_self_ref" CHECK ("id" <> "parent_id"), CONSTRAINT "PK_24dbc6126a28ff948da33e97d3b" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "idx_categories_user" ON "categories" ("user_id", "kind") WHERE "is_active"`);
-        await queryRunner.query(`CREATE TYPE "public"."payment_method_type" AS ENUM('cash', 'debit', 'credit', 'bank_transfer', 'digital_wallet', 'other')`);
-        await queryRunner.query(`CREATE TABLE "payment_methods" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "name" text NOT NULL, "type" "public"."payment_method_type" NOT NULL, "issuer" text, "last_four" character(4), "currency" character(3) NOT NULL DEFAULT 'COP', "credit_limit" numeric(14,2), "statement_day" smallint, "due_day" smallint, "monthly_rate" numeric(6,4), "opening_balance" numeric(14,2) NOT NULL DEFAULT '0', "is_active" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "payment_methods_name_unique" UNIQUE ("user_id", "name"), CONSTRAINT "payment_methods_due_day_check" CHECK ("due_day" IS NULL OR "due_day" BETWEEN 1 AND 31), CONSTRAINT "payment_methods_statement_day_check" CHECK ("statement_day" IS NULL OR "statement_day" BETWEEN 1 AND 31), CONSTRAINT "payment_methods_credit_limit_check" CHECK ("credit_limit" IS NULL OR "credit_limit" >= 0), CONSTRAINT "payment_methods_credit_only" CHECK ("type" = 'credit' OR ("credit_limit" IS NULL AND "statement_day" IS NULL AND "due_day" IS NULL)), CONSTRAINT "PK_34f9b8c6dfb4ac3559f7e2820d1" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TYPE "payment_method_type" AS ENUM('cash', 'debit', 'credit', 'bank_transfer', 'digital_wallet', 'other')`);
+        await queryRunner.query(`CREATE TABLE "payment_methods" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL, "name" text NOT NULL, "type" "payment_method_type" NOT NULL, "issuer" text, "last_four" character(4), "currency" character(3) NOT NULL DEFAULT 'COP', "credit_limit" numeric(14,2), "statement_day" smallint, "due_day" smallint, "monthly_rate" numeric(6,4), "opening_balance" numeric(14,2) NOT NULL DEFAULT '0', "is_active" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "payment_methods_name_unique" UNIQUE ("user_id", "name"), CONSTRAINT "payment_methods_due_day_check" CHECK ("due_day" IS NULL OR "due_day" BETWEEN 1 AND 31), CONSTRAINT "payment_methods_statement_day_check" CHECK ("statement_day" IS NULL OR "statement_day" BETWEEN 1 AND 31), CONSTRAINT "payment_methods_credit_limit_check" CHECK ("credit_limit" IS NULL OR "credit_limit" >= 0), CONSTRAINT "payment_methods_credit_only" CHECK ("type" = 'credit' OR ("credit_limit" IS NULL AND "statement_day" IS NULL AND "due_day" IS NULL)), CONSTRAINT "PK_34f9b8c6dfb4ac3559f7e2820d1" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "idx_payment_methods_user" ON "payment_methods" ("user_id") WHERE "is_active"`);
-        await queryRunner.query(`CREATE TYPE "public"."installment_status" AS ENUM('pending', 'paid', 'overdue', 'cancelled')`);
-        await queryRunner.query(`CREATE TABLE "installments" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "plan_id" uuid NOT NULL, "sequence_number" smallint NOT NULL, "amount" numeric(14,2) NOT NULL, "principal_amount" numeric(14,2) NOT NULL DEFAULT '0', "interest_amount" numeric(14,2) NOT NULL DEFAULT '0', "due_date" date NOT NULL, "paid_at" date, "status" "public"."installment_status" NOT NULL DEFAULT 'pending', CONSTRAINT "installments_sequence_unique" UNIQUE ("plan_id", "sequence_number"), CONSTRAINT "installments_paid_check" CHECK (("status" = 'paid') = ("paid_at" IS NOT NULL)), CONSTRAINT "installments_amount_check" CHECK ("amount" >= 0), CONSTRAINT "installments_sequence_number_check" CHECK ("sequence_number" > 0), CONSTRAINT "PK_c74e44aa06bdebef2af0a93da1b" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TYPE "installment_status" AS ENUM('pending', 'paid', 'overdue', 'cancelled')`);
+        await queryRunner.query(`CREATE TABLE "installments" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "plan_id" uuid NOT NULL, "sequence_number" smallint NOT NULL, "amount" numeric(14,2) NOT NULL, "principal_amount" numeric(14,2) NOT NULL DEFAULT '0', "interest_amount" numeric(14,2) NOT NULL DEFAULT '0', "due_date" date NOT NULL, "paid_at" date, "status" "installment_status" NOT NULL DEFAULT 'pending', CONSTRAINT "installments_sequence_unique" UNIQUE ("plan_id", "sequence_number"), CONSTRAINT "installments_paid_check" CHECK (("status" = 'paid') = ("paid_at" IS NOT NULL)), CONSTRAINT "installments_amount_check" CHECK ("amount" >= 0), CONSTRAINT "installments_sequence_number_check" CHECK ("sequence_number" > 0), CONSTRAINT "PK_c74e44aa06bdebef2af0a93da1b" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "idx_installments_pending" ON "installments" ("due_date") WHERE "status" = 'pending'`);
-        await queryRunner.query(`CREATE TABLE "installment_plans" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "payment_method_id" uuid NOT NULL, "description" text NOT NULL, "total_amount" numeric(14,2) NOT NULL, "installment_count" smallint NOT NULL, "monthly_rate" numeric(6,4) NOT NULL DEFAULT '0', "purchase_date" date NOT NULL, "first_due_date" date NOT NULL, "is_closed" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "installment_plans_installment_count_check" CHECK ("installment_count" BETWEEN 1 AND 120), CONSTRAINT "installment_plans_total_amount_check" CHECK ("total_amount" > 0), CONSTRAINT "PK_2bcdae2e05a4584743ee0d991db" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "installment_plans" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL, "payment_method_id" uuid NOT NULL, "description" text NOT NULL, "total_amount" numeric(14,2) NOT NULL, "installment_count" smallint NOT NULL, "monthly_rate" numeric(6,4) NOT NULL DEFAULT '0', "purchase_date" date NOT NULL, "first_due_date" date NOT NULL, "is_closed" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "installment_plans_installment_count_check" CHECK ("installment_count" BETWEEN 1 AND 120), CONSTRAINT "installment_plans_total_amount_check" CHECK ("total_amount" > 0), CONSTRAINT "PK_2bcdae2e05a4584743ee0d991db" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "idx_installment_plans_user" ON "installment_plans" ("user_id") WHERE NOT "is_closed"`);
-        await queryRunner.query(`CREATE TYPE "public"."recurrence" AS ENUM('once', 'daily', 'weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly', 'semiannual', 'annual')`);
-        await queryRunner.query(`CREATE TABLE "expenses" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "category_id" uuid, "payment_method_id" uuid, "plan_id" uuid, "installment_id" uuid, "description" text NOT NULL, "amount" numeric(14,2) NOT NULL, "currency" character(3) NOT NULL DEFAULT 'COP', "exchange_rate" numeric(14,6) NOT NULL DEFAULT '1', "occurred_on" date NOT NULL, "merchant" text, "notes" text, "receipt_url" text, "recurrence" "public"."recurrence" NOT NULL DEFAULT 'once', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "expenses_amount_check" CHECK ("amount" > 0), CONSTRAINT "PK_94c3ceb17e3140abc9282c20610" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TYPE "recurrence" AS ENUM('once', 'daily', 'weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly', 'semiannual', 'annual')`);
+        await queryRunner.query(`CREATE TABLE "expenses" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL, "category_id" uuid, "payment_method_id" uuid, "plan_id" uuid, "installment_id" uuid, "description" text NOT NULL, "amount" numeric(14,2) NOT NULL, "currency" character(3) NOT NULL DEFAULT 'COP', "exchange_rate" numeric(14,6) NOT NULL DEFAULT '1', "occurred_on" date NOT NULL, "merchant" text, "notes" text, "receipt_url" text, "recurrence" "recurrence" NOT NULL DEFAULT 'once', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "expenses_amount_check" CHECK ("amount" > 0), CONSTRAINT "PK_94c3ceb17e3140abc9282c20610" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "idx_expenses_category" ON "expenses" ("category_id") `);
         await queryRunner.query(`CREATE INDEX "idx_expenses_payment_method" ON "expenses" ("payment_method_id") `);
         await queryRunner.query(`CREATE INDEX "idx_expenses_user_date" ON "expenses" ("user_id", "occurred_on") `);
-        await queryRunner.query(`CREATE TABLE "incomes" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "category_id" uuid, "payment_method_id" uuid, "description" text NOT NULL, "source" text, "amount" numeric(14,2) NOT NULL, "currency" character(3) NOT NULL DEFAULT 'COP', "exchange_rate" numeric(14,6) NOT NULL DEFAULT '1', "occurred_on" date NOT NULL, "notes" text, "recurrence" "public"."recurrence" NOT NULL DEFAULT 'once', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "incomes_amount_check" CHECK ("amount" > 0), CONSTRAINT "PK_d737b3d0314c1f0da5461a55e5e" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "incomes" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL, "category_id" uuid, "payment_method_id" uuid, "description" text NOT NULL, "source" text, "amount" numeric(14,2) NOT NULL, "currency" character(3) NOT NULL DEFAULT 'COP', "exchange_rate" numeric(14,6) NOT NULL DEFAULT '1', "occurred_on" date NOT NULL, "notes" text, "recurrence" "recurrence" NOT NULL DEFAULT 'once', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "incomes_amount_check" CHECK ("amount" > 0), CONSTRAINT "PK_d737b3d0314c1f0da5461a55e5e" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "idx_incomes_user_date" ON "incomes" ("user_id", "occurred_on") `);
-        await queryRunner.query(`CREATE TABLE "tags" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "name" text NOT NULL, CONSTRAINT "tags_name_unique" UNIQUE ("user_id", "name"), CONSTRAINT "PK_e7dc17249a1148a1970748eda99" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "tags" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "user_id" uuid NOT NULL, "name" text NOT NULL, CONSTRAINT "tags_name_unique" UNIQUE ("user_id", "name"), CONSTRAINT "PK_e7dc17249a1148a1970748eda99" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "expense_tags" ("expense_id" uuid NOT NULL, "tag_id" uuid NOT NULL, CONSTRAINT "PK_d2006dcc715802ea59a4fd04435" PRIMARY KEY ("expense_id", "tag_id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_0a092156be61729db60d4da299" ON "expense_tags" ("expense_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_dca8d34cffafad2bfa95c514aa" ON "expense_tags" ("tag_id") `);
@@ -88,31 +88,31 @@ export class FinanceSchema1784405474397 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "categories" DROP CONSTRAINT "FK_2296b7fe012d95646fa41921c8b"`);
         await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "timezone"`);
         await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "base_currency"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_d6bc0456b7bd555a50cf09faa6"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_17f02a8635b304a80983ac91cb"`);
+        await queryRunner.query(`DROP INDEX "IDX_d6bc0456b7bd555a50cf09faa6"`);
+        await queryRunner.query(`DROP INDEX "IDX_17f02a8635b304a80983ac91cb"`);
         await queryRunner.query(`DROP TABLE "income_tags"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_dca8d34cffafad2bfa95c514aa"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_0a092156be61729db60d4da299"`);
+        await queryRunner.query(`DROP INDEX "IDX_dca8d34cffafad2bfa95c514aa"`);
+        await queryRunner.query(`DROP INDEX "IDX_0a092156be61729db60d4da299"`);
         await queryRunner.query(`DROP TABLE "expense_tags"`);
         await queryRunner.query(`DROP TABLE "tags"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_incomes_user_date"`);
+        await queryRunner.query(`DROP INDEX "idx_incomes_user_date"`);
         await queryRunner.query(`DROP TABLE "incomes"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_expenses_user_date"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_expenses_payment_method"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_expenses_category"`);
+        await queryRunner.query(`DROP INDEX "idx_expenses_user_date"`);
+        await queryRunner.query(`DROP INDEX "idx_expenses_payment_method"`);
+        await queryRunner.query(`DROP INDEX "idx_expenses_category"`);
         await queryRunner.query(`DROP TABLE "expenses"`);
-        await queryRunner.query(`DROP TYPE "public"."recurrence"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_installment_plans_user"`);
+        await queryRunner.query(`DROP TYPE "recurrence"`);
+        await queryRunner.query(`DROP INDEX "idx_installment_plans_user"`);
         await queryRunner.query(`DROP TABLE "installment_plans"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_installments_pending"`);
+        await queryRunner.query(`DROP INDEX "idx_installments_pending"`);
         await queryRunner.query(`DROP TABLE "installments"`);
-        await queryRunner.query(`DROP TYPE "public"."installment_status"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_payment_methods_user"`);
+        await queryRunner.query(`DROP TYPE "installment_status"`);
+        await queryRunner.query(`DROP INDEX "idx_payment_methods_user"`);
         await queryRunner.query(`DROP TABLE "payment_methods"`);
-        await queryRunner.query(`DROP TYPE "public"."payment_method_type"`);
-        await queryRunner.query(`DROP INDEX "public"."idx_categories_user"`);
+        await queryRunner.query(`DROP TYPE "payment_method_type"`);
+        await queryRunner.query(`DROP INDEX "idx_categories_user"`);
         await queryRunner.query(`DROP TABLE "categories"`);
-        await queryRunner.query(`DROP TYPE "public"."transaction_kind"`);
+        await queryRunner.query(`DROP TYPE "transaction_kind"`);
     }
 
 }
