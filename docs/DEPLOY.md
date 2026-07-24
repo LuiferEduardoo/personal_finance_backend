@@ -60,7 +60,7 @@ CORS_ORIGINS=https://tu-frontend.com
 
 4. Asegurar que el servidor tenga **acceso de red a la base de datos** (firewall / lista blanca de IP en el proveedor).
 
-> 🐘 **Filess.io (u otras BD gestionadas sin `public`)**: Filess no da acceso al esquema `public`; cada base tiene su propio esquema **con el nombre de la base de datos**. Ahí debes poner **`DB_SCHEMA` = el mismo valor de `DB_NAME`** (el nombre que te dio Filess). Sin eso, las migraciones fallan con `no schema has been selected to create in`. La app fija el `schema` y el `search_path` de la conexión, así que con `DB_SCHEMA` correcto todo funciona.
+> 🐘 **Filess.io (u otras BD gestionadas sin `public`)**: Filess no da acceso al esquema `public`; cada base tiene su propio esquema **con el nombre de la base de datos**. Ahí debes poner **`DB_SCHEMA` = el mismo valor de `DB_NAME`** (el nombre que te dio Filess). Sin eso, las migraciones fallan con `no schema has been selected to create in`. La app fija el `schema` y el `search_path` de la conexión, y al arrancar **crea el esquema si no existe** (`npm run schema:ensure`, salvo `public`), así que con `DB_SCHEMA` correcto todo funciona.
 
 > El contenedor usa la red por defecto de Docker (bridge con salida a internet), suficiente para llegar a una BD externa. No se necesita red de Docker propia.
 
