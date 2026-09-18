@@ -129,9 +129,14 @@ export class RecurringExpensesService {
    */
   async runDue(
     today = new Date().toISOString().substring(0, 10),
+    userId?: string,
   ): Promise<number> {
     const due = await this.recurringRepository.find({
-      where: { isActive: true, nextRunOn: LessThanOrEqual(today) },
+      where: {
+        isActive: true,
+        nextRunOn: LessThanOrEqual(today),
+        ...(userId ? { userId } : {}),
+      },
       relations: { items: true },
     });
 

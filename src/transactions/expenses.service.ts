@@ -9,6 +9,8 @@ import {
   FindOptionsWhere,
   LessThanOrEqual,
   MoreThanOrEqual,
+  DataSource,
+  EntityManager,
   Repository,
 } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
@@ -40,6 +42,7 @@ export class ExpensesService {
     private readonly articlesService: ArticlesService,
     private readonly purchasesService: PurchasesService,
     private readonly accountsService: PaymentMethodsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   findAll(
@@ -105,13 +108,16 @@ export class ExpensesService {
       amount: finalAmount,
       items: resolved.map((r) => this.buildItem(r)),
     });
-    const saved = await this.expensesRepository.save(expense);
-
-    // el gasto sale de la cuenta: baja el saldo
-    await this.accountsService.adjustBalance(accountId ?? null, -finalAmount);
-
-    // inventario: cada ítem tipo producto entra al stock ("hay")
-    await this.registerInventoryPurchases(userId, saved, resolved);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const created = await manager.save(Expense, expense);
+      await this.accountsService.adjustBalance(
+        accountId ?? null,
+        -finalAmount,
+        manager,
+      );
+      await this.registerInventoryPurchases(userId, created, resolved, manager);
+      return created;
+    });
 
     return this.findOne(saved.id, userId);
   }
@@ -128,14 +134,17 @@ export class ExpensesService {
       expense.paymentMethodId = accountId;
     }
 
+    let resolvedItems: ResolvedItem[] | undefined;
     if (items !== undefined) {
       // reemplazo total de ítems (no re-dispara inventario, para no duplicar ciclos)
-      const resolved = await this.resolveItems(userId, items);
-      await this.expenseItemsRepository.delete({ expenseId: id });
-      expense.items = resolved.map((r) => this.buildItem(r));
-      expense.amount = this.resolveAmount(amount, resolved);
+      resolvedItems = await this.resolveItems(userId, items);
+      expense.items = resolvedItems.map((r) => this.buildItem(r));
+      expense.amount = this.resolveAmount(amount, resolvedItems);
       if (categoryId === undefined) {
-        expense.categoryId = this.resolveCategory(expense.categoryId, resolved);
+        expense.categoryId = this.resolveCategory(
+          expense.categoryId,
+          resolvedItems,
+        );
       }
     } else if (amount !== undefined) {
       expense.amount = amount;
@@ -147,33 +156,46 @@ export class ExpensesService {
     // ajuste de saldo: revierte el movimiento previo y aplica el nuevo
     const accountChanged = expense.paymentMethodId !== prevAccountId;
     const amountChanged = expense.amount !== prevAmount;
-    if (accountChanged || amountChanged) {
-      await this.accountsService.adjustBalance(prevAccountId, prevAmount);
-      if (expense.paymentMethodId) {
-        await this.accountsService.assertCreditAvailable(
+    Object.assign(expense, changes);
+    await this.dataSource.transaction(async (manager) => {
+      if (resolvedItems) {
+        await manager.delete(ExpenseItem, { expenseId: id });
+      }
+      if (accountChanged || amountChanged) {
+        await this.accountsService.adjustBalance(
+          prevAccountId,
+          prevAmount,
+          manager,
+        );
+        if (expense.paymentMethodId) {
+          await this.accountsService.assertCreditAvailable(
+            expense.paymentMethodId,
+            expense.amount,
+            manager,
+          );
+        }
+        await this.accountsService.adjustBalance(
           expense.paymentMethodId,
-          expense.amount,
+          -expense.amount,
+          manager,
         );
       }
-      await this.accountsService.adjustBalance(
-        expense.paymentMethodId,
-        -expense.amount,
-      );
-    }
-
-    Object.assign(expense, changes);
-    await this.expensesRepository.save(expense);
+      await manager.save(Expense, expense);
+    });
     return this.findOne(id, userId);
   }
 
   async remove(id: string, userId: string): Promise<boolean> {
     const expense = await this.findOne(id, userId);
     // devuelve el importe a la cuenta
-    await this.accountsService.adjustBalance(
-      expense.paymentMethodId,
-      expense.amount,
-    );
-    await this.expensesRepository.remove(expense);
+    await this.dataSource.transaction(async (manager) => {
+      await this.accountsService.adjustBalance(
+        expense.paymentMethodId,
+        expense.amount,
+        manager,
+      );
+      await manager.remove(Expense, expense);
+    });
     return true;
   }
 
@@ -249,19 +271,25 @@ export class ExpensesService {
     userId: string,
     expense: Expense,
     items: ResolvedItem[],
+    manager: EntityManager,
   ): Promise<void> {
     for (const { article, input, discount } of items) {
       if (article.type !== ArticleType.PRODUCT) {
         continue;
       }
-      await this.purchasesService.registerPurchaseForArticle(userId, article, {
-        quantity: input.quantity ?? 1,
-        unitPrice: input.unitPrice,
-        discount,
-        store: expense.merchant,
-        purchasedOn: expense.occurredOn,
-        expenseId: expense.id,
-      });
+      await this.purchasesService.registerPurchaseForArticle(
+        userId,
+        article,
+        {
+          quantity: input.quantity ?? 1,
+          unitPrice: input.unitPrice,
+          discount,
+          store: expense.merchant,
+          purchasedOn: expense.occurredOn,
+          expenseId: expense.id,
+        },
+        manager,
+      );
     }
   }
 }

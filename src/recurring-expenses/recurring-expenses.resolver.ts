@@ -60,9 +60,8 @@ export class RecurringExpensesResolver {
     description:
       'Genera los gastos recurrentes vencidos (lo hace también un job diario). Devuelve cuántos se crearon.',
   })
-  // sin @Scopes a propósito: dispara la materialización de TODOS los usuarios,
-  // así que queda fuera del alcance de una API key
-  runDueRecurringExpenses(): Promise<number> {
-    return this.recurringExpensesService.runDue();
+  @Scopes(ApiScope.RECURRING_WRITE)
+  runDueRecurringExpenses(@CurrentUser() user: JwtPayload): Promise<number> {
+    return this.recurringExpensesService.runDue(undefined, user.sub);
   }
 }

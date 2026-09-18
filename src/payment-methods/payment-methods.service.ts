@@ -4,7 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, QueryFailedError, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { CreateAccountInput } from './dto/create-account.input';
 import { TransferInput } from './dto/transfer.input';
 import { UpdateAccountInput } from './dto/update-account.input';
@@ -85,15 +90,17 @@ export class PaymentMethodsService {
   // --- saldo ---
 
   // ajuste atómico a nivel BD; no-op si la cuenta es null
-  async adjustBalance(accountId: string | null, delta: number): Promise<void> {
+  async adjustBalance(
+    accountId: string | null,
+    delta: number,
+    manager?: EntityManager,
+  ): Promise<void> {
     if (!accountId || delta === 0) {
       return;
     }
-    await this.accountsRepository.increment(
-      { id: accountId },
-      'balance',
-      delta,
-    );
+    await (
+      manager?.getRepository(PaymentMethod) ?? this.accountsRepository
+    ).increment({ id: accountId }, 'balance', delta);
   }
 
   // valida que la cuenta exista y sea del usuario antes de moverle el saldo
@@ -111,8 +118,11 @@ export class PaymentMethodsService {
   async assertCreditAvailable(
     accountId: string,
     amount: number,
+    manager?: EntityManager,
   ): Promise<void> {
-    const account = await this.accountsRepository.findOne({
+    const account = await (
+      manager?.getRepository(PaymentMethod) ?? this.accountsRepository
+    ).findOne({
       where: { id: accountId },
     });
     if (!account || account.type !== PaymentMethodType.CREDIT) {

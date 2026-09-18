@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
 import { Article } from '../articles/entities/article.entity';
 import { resolveDiscount } from '../common/discount';
@@ -57,8 +57,10 @@ export class PurchasesService {
     });
   }
 
-  hasOpenCycle(articleId: string): Promise<boolean> {
-    return this.cyclesRepository.exists({
+  hasOpenCycle(articleId: string, manager?: EntityManager): Promise<boolean> {
+    return (
+      manager?.getRepository(ConsumptionCycle) ?? this.cyclesRepository
+    ).exists({
       where: { articleId, depletedOn: IsNull() },
     });
   }
@@ -91,8 +93,9 @@ export class PurchasesService {
     userId: string,
     article: Article,
     data: PurchaseData,
+    manager?: EntityManager,
   ): Promise<ProductPurchase> {
-    return this.recordPurchase(userId, article, data);
+    return this.recordPurchase(userId, article, data, manager);
   }
 
   // cuerpo común: crea la compra, abre ciclo si aplica y sincroniza la lista
@@ -100,9 +103,14 @@ export class PurchasesService {
     userId: string,
     article: Article,
     data: PurchaseData,
+    manager?: EntityManager,
   ): Promise<ProductPurchase> {
-    const purchase = await this.purchasesRepository.save(
-      this.purchasesRepository.create({
+    const purchasesRepository =
+      manager?.getRepository(ProductPurchase) ?? this.purchasesRepository;
+    const cyclesRepository =
+      manager?.getRepository(ConsumptionCycle) ?? this.cyclesRepository;
+    const purchase = await purchasesRepository.save(
+      purchasesRepository.create({
         userId,
         articleId: article.id,
         quantity: data.quantity ?? 1,
@@ -116,9 +124,12 @@ export class PurchasesService {
     );
 
     // "hay Shampoo": abre ciclo de consumo si es consumible y no hay uno abierto
-    if (article.isConsumable && !(await this.hasOpenCycle(article.id))) {
-      await this.cyclesRepository.save(
-        this.cyclesRepository.create({
+    if (
+      article.isConsumable &&
+      !(await this.hasOpenCycle(article.id, manager))
+    ) {
+      await cyclesRepository.save(
+        cyclesRepository.create({
           userId,
           articleId: article.id,
           purchaseId: purchase.id,
@@ -129,9 +140,14 @@ export class PurchasesService {
     }
 
     // marca como comprados los ítems pendientes de las listas del usuario
-    await this.markPendingListItemsPurchased(userId, article.id, purchase.id);
+    await this.markPendingListItemsPurchased(
+      userId,
+      article.id,
+      purchase.id,
+      manager,
+    );
 
-    const saved = await this.purchasesRepository.findOne({
+    const saved = await purchasesRepository.findOne({
       where: { id: purchase.id },
       relations: { article: true },
     });
@@ -186,8 +202,12 @@ export class PurchasesService {
     userId: string,
     articleId: string,
     purchaseId: string,
+    manager?: EntityManager,
   ): Promise<void> {
-    const pendingItems = await this.shoppingListItemsRepository.find({
+    const repository =
+      manager?.getRepository(ShoppingListItem) ??
+      this.shoppingListItemsRepository;
+    const pendingItems = await repository.find({
       where: {
         articleId,
         status: ListItemStatus.PENDING,
@@ -198,7 +218,7 @@ export class PurchasesService {
     for (const item of pendingItems) {
       item.status = ListItemStatus.PURCHASED;
       item.productPurchaseId = purchaseId;
-      await this.shoppingListItemsRepository.save(item);
+      await repository.save(item);
     }
   }
 

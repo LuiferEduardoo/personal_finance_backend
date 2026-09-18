@@ -5,6 +5,7 @@ import {
   FindOptionsWhere,
   LessThanOrEqual,
   MoreThanOrEqual,
+  DataSource,
   Repository,
 } from 'typeorm';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
@@ -19,6 +20,7 @@ export class IncomesService {
     @InjectRepository(Income)
     private readonly incomesRepository: Repository<Income>,
     private readonly accountsService: PaymentMethodsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   findAll(userId: string, filter?: TransactionsFilterInput): Promise<Income[]> {
@@ -62,9 +64,15 @@ export class IncomesService {
       userId,
       paymentMethodId: accountId ?? null,
     });
-    const saved = await this.incomesRepository.save(income);
-    // el ingreso entra a la cuenta: sube el saldo
-    await this.accountsService.adjustBalance(accountId ?? null, saved.amount);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const created = await manager.save(Income, income);
+      await this.accountsService.adjustBalance(
+        accountId ?? null,
+        created.amount,
+        manager,
+      );
+      return created;
+    });
     return this.findOne(saved.id, userId);
   }
 
@@ -79,30 +87,38 @@ export class IncomesService {
       income.paymentMethodId = accountId;
     }
     Object.assign(income, changes);
-    await this.incomesRepository.save(income);
-
-    // revierte el ingreso previo y aplica el nuevo
-    if (
-      income.paymentMethodId !== prevAccountId ||
-      income.amount !== prevAmount
-    ) {
-      await this.accountsService.adjustBalance(prevAccountId, -prevAmount);
-      await this.accountsService.adjustBalance(
-        income.paymentMethodId,
-        income.amount,
-      );
-    }
+    await this.dataSource.transaction(async (manager) => {
+      await manager.save(Income, income);
+      if (
+        income.paymentMethodId !== prevAccountId ||
+        income.amount !== prevAmount
+      ) {
+        await this.accountsService.adjustBalance(
+          prevAccountId,
+          -prevAmount,
+          manager,
+        );
+        await this.accountsService.adjustBalance(
+          income.paymentMethodId,
+          income.amount,
+          manager,
+        );
+      }
+    });
     return this.findOne(id, userId);
   }
 
   async remove(id: string, userId: string): Promise<boolean> {
     const income = await this.findOne(id, userId);
     // saca el importe de la cuenta
-    await this.accountsService.adjustBalance(
-      income.paymentMethodId,
-      -income.amount,
-    );
-    await this.incomesRepository.remove(income);
+    await this.dataSource.transaction(async (manager) => {
+      await this.accountsService.adjustBalance(
+        income.paymentMethodId,
+        -income.amount,
+        manager,
+      );
+      await manager.remove(Income, income);
+    });
     return true;
   }
 }
