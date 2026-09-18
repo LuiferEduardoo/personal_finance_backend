@@ -22,6 +22,10 @@ import { User } from '../../users/entities/user.entity';
   'product_purchases_unit_price_check',
   '"unit_price" IS NULL OR "unit_price" >= 0',
 )
+@Check(
+  'product_purchases_discount_check',
+  '"discount" >= 0 AND ("unit_price" IS NULL OR "discount" <= "unit_price" * "quantity")',
+)
 @Index('idx_product_purchases_article', ['articleId', 'purchasedOn'])
 export class ProductPurchase {
   @Field(() => ID)
@@ -79,14 +83,28 @@ export class ProductPurchase {
   })
   unitPrice: number | null;
 
-  @Field(() => Float, { nullable: true })
+  // descuento de la compra, ya resuelto a importe
+  @Field(() => Float, { description: 'Descuento aplicado a la compra' })
+  @Column({
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: new NumericTransformer(),
+  })
+  discount: number;
+
+  @Field(() => Float, {
+    nullable: true,
+    description: 'unit_price * quantity - discount (lo realmente pagado)',
+  })
   @Column({
     name: 'total_price',
     type: 'numeric',
     precision: 14,
     scale: 2,
     generatedType: 'STORED',
-    asExpression: '"unit_price" * "quantity"',
+    asExpression: '"unit_price" * "quantity" - "discount"',
     nullable: true,
     transformer: new NumericTransformer(),
   })

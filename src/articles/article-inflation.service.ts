@@ -64,7 +64,7 @@ export class ArticleInflationService {
                a."category_id", cat."parent_id" AS category_parent_id,
                cat."name" AS category_name, catp."name" AS category_parent_name,
                to_char(date_trunc('month', e."occurred_on"), 'YYYY-MM') AS period,
-               SUM(ei."unit_price" * ei."quantity" * e."exchange_rate") AS total_base,
+               SUM((ei."unit_price" * ei."quantity" - ei."discount") * e."exchange_rate") AS total_base,
                SUM(ei."quantity") AS total_qty
         FROM "expense_items" ei
         JOIN "expenses" e ON e."id" = ei."expense_id"

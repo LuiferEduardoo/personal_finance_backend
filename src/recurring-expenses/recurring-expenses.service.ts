@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
 import { Recurrence } from '../common/enums/recurrence.enum';
+import { resolveDiscount } from '../common/discount';
 import { ExpenseItemInput } from '../transactions/dto/expense-item.input';
 import { ExpensesService } from '../transactions/expenses.service';
 import { CreateRecurringExpenseInput } from './dto/create-recurring-expense.input';
@@ -162,6 +163,8 @@ export class RecurringExpensesService {
       articleId: item.articleId ?? undefined,
       unitPrice: item.unitPrice,
       quantity: item.quantity,
+      // ya viene resuelto a importe en la plantilla
+      discount: item.discount,
       description: item.description ?? undefined,
     }));
     await this.expensesService.create({
@@ -198,6 +201,10 @@ export class RecurringExpensesService {
           description: input.description ?? null,
           unitPrice: input.unitPrice,
           quantity: input.quantity ?? 1,
+          discount: resolveDiscount(
+            input.unitPrice * (input.quantity ?? 1),
+            input,
+          ),
         });
       }),
     );

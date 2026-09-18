@@ -19,6 +19,10 @@ import { Expense } from './expense.entity';
 @Entity('expense_items')
 @Check('expense_items_unit_price_check', '"unit_price" >= 0')
 @Check('expense_items_quantity_check', '"quantity" > 0')
+@Check(
+  'expense_items_discount_check',
+  '"discount" >= 0 AND "discount" <= "unit_price" * "quantity"',
+)
 export class ExpenseItem {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -70,13 +74,25 @@ export class ExpenseItem {
   })
   quantity: number;
 
-  @Field(() => Float, { description: 'unit_price * quantity' })
+  // descuento de la línea, ya resuelto a importe (el porcentaje se convierte
+  // al escribir). Nunca supera unit_price * quantity.
+  @Field(() => Float, { description: 'Descuento aplicado a la línea' })
+  @Column({
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: new NumericTransformer(),
+  })
+  discount: number;
+
+  @Field(() => Float, { description: 'unit_price * quantity - discount' })
   @Column({
     type: 'numeric',
     precision: 14,
     scale: 2,
     generatedType: 'STORED',
-    asExpression: '"unit_price" * "quantity"',
+    asExpression: '"unit_price" * "quantity" - "discount"',
     transformer: new NumericTransformer(),
   })
   subtotal: number;

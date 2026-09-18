@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
 import { Article, ArticleType } from '../articles/entities/article.entity';
+import { resolveDiscount } from '../common/discount';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import { PurchasesService } from '../products/purchases.service';
 import { CreateExpenseInput } from './dto/create-expense.input';
@@ -22,10 +23,11 @@ import { UpdateExpenseInput } from './dto/update-expense.input';
 import { ExpenseItem } from './entities/expense-item.entity';
 import { Expense } from './entities/expense.entity';
 
-// ítem ya con su artículo resuelto
+// ítem ya con su artículo resuelto y su descuento pasado a importe
 interface ResolvedItem {
   article: Article;
   input: ExpenseItemInput;
+  discount: number;
 }
 
 @Injectable()
@@ -187,6 +189,10 @@ export class ExpensesService {
           input.newArticle,
         ),
         input,
+        discount: resolveDiscount(
+          input.unitPrice * (input.quantity ?? 1),
+          input,
+        ),
       })),
     );
   }
@@ -197,17 +203,20 @@ export class ExpensesService {
       description: resolved.input.description ?? null,
       unitPrice: resolved.input.unitPrice,
       quantity: resolved.input.quantity ?? 1,
+      discount: resolved.discount,
     });
   }
 
-  // importe = suma de subtotales de los ítems; si no hay ítems, del input
+  // importe = suma de subtotales netos (ya con descuento) de los ítems;
+  // si no hay ítems, del input
   private resolveAmount(
     amount: number | undefined,
     items: ResolvedItem[],
   ): number {
     if (items.length) {
       return items.reduce(
-        (sum, r) => sum + r.input.unitPrice * (r.input.quantity ?? 1),
+        (sum, r) =>
+          sum + r.input.unitPrice * (r.input.quantity ?? 1) - r.discount,
         0,
       );
     }
@@ -238,13 +247,14 @@ export class ExpensesService {
     expense: Expense,
     items: ResolvedItem[],
   ): Promise<void> {
-    for (const { article, input } of items) {
+    for (const { article, input, discount } of items) {
       if (article.type !== ArticleType.PRODUCT) {
         continue;
       }
       await this.purchasesService.registerPurchaseForArticle(userId, article, {
         quantity: input.quantity ?? 1,
         unitPrice: input.unitPrice,
+        discount,
         store: expense.merchant,
         purchasedOn: expense.occurredOn,
         expenseId: expense.id,

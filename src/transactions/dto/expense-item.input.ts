@@ -21,6 +21,18 @@ export class ExpenseItemInput {
   @Field(() => Float, { nullable: true, defaultValue: 1 })
   quantity?: number;
 
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Descuento en importe sobre la línea (unitPrice * quantity)',
+  })
+  discount?: number;
+
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Descuento en porcentaje (0-100); alternativa a discount',
+  })
+  discountPercent?: number;
+
   @Field({ nullable: true, description: 'Etiqueta libre de la línea' })
   description?: string;
 }

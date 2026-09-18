@@ -16,6 +16,10 @@ import { RecurringExpense } from './recurring-expense.entity';
 @Entity('recurring_expense_items')
 @Check('recurring_expense_items_unit_price_check', '"unit_price" >= 0')
 @Check('recurring_expense_items_quantity_check', '"quantity" > 0')
+@Check(
+  'recurring_expense_items_discount_check',
+  '"discount" >= 0 AND "discount" <= "unit_price" * "quantity"',
+)
 export class RecurringExpenseItem {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -61,4 +65,14 @@ export class RecurringExpenseItem {
     transformer: new NumericTransformer(),
   })
   quantity: number;
+
+  @Field(() => Float, { description: 'Descuento aplicado a la línea' })
+  @Column({
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    default: 0,
+    transformer: new NumericTransformer(),
+  })
+  discount: number;
 }

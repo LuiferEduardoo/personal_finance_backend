@@ -22,6 +22,18 @@ export class RegisterProductPurchaseInput {
   @Field(() => Float, { nullable: true })
   unitPrice?: number;
 
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Descuento en importe sobre la línea (unitPrice * quantity)',
+  })
+  discount?: number;
+
+  @Field(() => Float, {
+    nullable: true,
+    description: 'Descuento en porcentaje (0-100); alternativa a discount',
+  })
+  discountPercent?: number;
+
   @Field({ nullable: true })
   store?: string;
 

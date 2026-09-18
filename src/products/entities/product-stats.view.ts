@@ -45,7 +45,7 @@ const dateToString: ValueTransformer = {
     LEFT JOIN (
         SELECT "article_id",
                MAX("purchased_on") AS "last_purchased_on",
-               AVG("unit_price")   AS "avg_unit_price"
+               AVG("total_price" / NULLIF("quantity", 0)) AS "avg_unit_price"
         FROM "product_purchases"
         GROUP BY "article_id"
     ) pp ON pp."article_id" = a."id"

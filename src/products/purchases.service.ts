@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
 import { Article } from '../articles/entities/article.entity';
+import { resolveDiscount } from '../common/discount';
 import {
   ListItemStatus,
   ShoppingListItem,
@@ -16,6 +17,7 @@ import { ProductPurchase } from './entities/product-purchase.entity';
 interface PurchaseData {
   quantity?: number;
   unitPrice?: number | null;
+  discount?: number;
   store?: string | null;
   purchasedOn: string;
   expenseId?: string | null;
@@ -75,7 +77,10 @@ export class PurchasesService {
       input.articleId,
       input.newArticle,
     );
-    return this.recordPurchase(userId, article, input);
+    return this.recordPurchase(userId, article, {
+      ...input,
+      discount: this.resolvePurchaseDiscount(input),
+    });
   }
 
   /**
@@ -102,6 +107,7 @@ export class PurchasesService {
         articleId: article.id,
         quantity: data.quantity ?? 1,
         unitPrice: data.unitPrice ?? null,
+        discount: data.discount ?? 0,
         store: data.store ?? null,
         purchasedOn: data.purchasedOn,
         expenseId: data.expenseId ?? null,
@@ -130,6 +136,19 @@ export class PurchasesService {
       relations: { article: true },
     });
     return saved!;
+  }
+
+  // el descuento solo tiene sentido si la compra lleva precio unitario
+  private resolvePurchaseDiscount(input: RegisterProductPurchaseInput): number {
+    if (input.discount == null && input.discountPercent == null) {
+      return 0;
+    }
+    if (input.unitPrice == null) {
+      throw new BadRequestException(
+        'Para aplicar un descuento la compra necesita unitPrice',
+      );
+    }
+    return resolveDiscount(input.unitPrice * (input.quantity ?? 1), input);
   }
 
   /**
