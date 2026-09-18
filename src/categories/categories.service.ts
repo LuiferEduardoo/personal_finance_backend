@@ -29,9 +29,13 @@ export class CategoriesService {
     });
   }
 
-  async findOne(id: string): Promise<Category> {
+  // las del sistema (userId null) las ve cualquiera; las propias, solo su dueño
+  async findOne(id: string, userId: string): Promise<Category> {
     const category = await this.categoriesRepository.findOne({
-      where: { id },
+      where: [
+        { id, userId: IsNull() },
+        { id, userId },
+      ],
     });
     if (!category) {
       throw new NotFoundException(`Categoría ${id} no encontrada`);
@@ -39,16 +43,16 @@ export class CategoriesService {
     return category;
   }
 
-  async create(input: CreateCategoryInput): Promise<Category> {
+  async create(userId: string, input: CreateCategoryInput): Promise<Category> {
     if (input.parentId) {
-      await this.validateParent(input.parentId, input.userId, input.kind);
+      await this.validateParent(input.parentId, userId, input.kind);
     }
-    const category = this.categoriesRepository.create(input);
+    const category = this.categoriesRepository.create({ ...input, userId });
     return this.categoriesRepository.save(category);
   }
 
-  async update(input: UpdateCategoryInput): Promise<Category> {
-    const category = await this.findOne(input.id);
+  async update(userId: string, input: UpdateCategoryInput): Promise<Category> {
+    const category = await this.findOne(input.id, userId);
     if (!category.userId) {
       throw new BadRequestException(
         'Las categorías del sistema no se pueden modificar',
@@ -63,11 +67,12 @@ export class CategoriesService {
     }
     const { id, ...changes } = input;
     Object.assign(category, changes);
-    return this.categoriesRepository.save(category);
+    await this.categoriesRepository.save(category);
+    return this.findOne(id, userId);
   }
 
-  async remove(id: string): Promise<boolean> {
-    const category = await this.findOne(id);
+  async remove(id: string, userId: string): Promise<boolean> {
+    const category = await this.findOne(id, userId);
     if (!category.userId) {
       throw new BadRequestException(
         'Las categorías del sistema no se pueden eliminar',

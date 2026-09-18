@@ -11,7 +11,9 @@ import {
 import { Article } from '../articles/entities/article.entity';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Scopes } from '../auth/decorators/scopes.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
+import { ApiScope } from '../common/enums/api-scope.enum';
 import { UpdateProductInput } from './dto/update-product.input';
 import { ProductStatsView } from './entities/product-stats.view';
 import { ProductsService } from './products.service';
@@ -32,6 +34,7 @@ export class ProductsResolver {
     description:
       '"hay producto": tiene un ciclo de consumo abierto (comprado y sin agotar)',
   })
+  @Scopes(ApiScope.PRODUCTS_READ)
   inStock(@Parent() article: Article): Promise<boolean> {
     return this.purchasesService.hasOpenCycle(article.id);
   }
@@ -39,6 +42,7 @@ export class ProductsResolver {
   @Query(() => [Article], {
     description: 'Catálogo de productos (artículos tipo producto) del usuario',
   })
+  @Scopes(ApiScope.PRODUCTS_READ)
   products(
     @CurrentUser() user: JwtPayload,
     @Args('search', { nullable: true }) search?: string,
@@ -49,6 +53,7 @@ export class ProductsResolver {
   }
 
   @Query(() => Article)
+  @Scopes(ApiScope.PRODUCTS_READ)
   product(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,
@@ -60,11 +65,13 @@ export class ProductsResolver {
     description:
       'Estadísticas por producto: duración promedio, costo y fecha estimada de agotamiento',
   })
+  @Scopes(ApiScope.PRODUCTS_READ)
   productStats(@CurrentUser() user: JwtPayload): Promise<ProductStatsView[]> {
     return this.productsService.productStats(user.sub);
   }
 
   @Mutation(() => Article)
+  @Scopes(ApiScope.PRODUCTS_WRITE)
   updateProduct(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: UpdateProductInput,
@@ -73,6 +80,7 @@ export class ProductsResolver {
   }
 
   @Mutation(() => Boolean)
+  @Scopes(ApiScope.PRODUCTS_WRITE)
   removeProduct(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,

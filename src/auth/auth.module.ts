@@ -6,6 +6,7 @@ import { UsersModule } from '../users/users.module';
 import { AuthResolver } from './auth.resolver';
 import { AuthService } from './auth.service';
 import { GqlAuthGuard } from './guards/gql-auth.guard';
+import { GqlUserOnlyGuard } from './guards/gql-user-only.guard';
 import { Authentication } from './entities/authentication.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 
@@ -27,7 +28,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
       }),
     }),
   ],
-  providers: [AuthService, AuthResolver, GqlAuthGuard],
-  exports: [TypeOrmModule, AuthService, GqlAuthGuard],
+  providers: [AuthService, AuthResolver, GqlAuthGuard, GqlUserOnlyGuard],
+  exports: [TypeOrmModule, AuthService, GqlAuthGuard, GqlUserOnlyGuard],
 })
 export class AuthModule {}

@@ -2,7 +2,9 @@ import { UseGuards } from '@nestjs/common';
 import { Args, ID, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Scopes } from '../auth/decorators/scopes.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
+import { ApiScope } from '../common/enums/api-scope.enum';
 import { ArticlesService } from './articles.service';
 import { CreateArticleInput } from './dto/create-article.input';
 import { UpdateArticleInput } from './dto/update-article.input';
@@ -17,6 +19,7 @@ export class ArticlesResolver {
     description:
       'Catálogo de artículos del usuario (productos, servicios, etc.)',
   })
+  @Scopes(ApiScope.ARTICLES_READ)
   articles(
     @CurrentUser() user: JwtPayload,
     @Args('search', { nullable: true }) search?: string,
@@ -34,6 +37,7 @@ export class ArticlesResolver {
   }
 
   @Query(() => Article)
+  @Scopes(ApiScope.ARTICLES_READ)
   article(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,
@@ -42,6 +46,7 @@ export class ArticlesResolver {
   }
 
   @Mutation(() => Article)
+  @Scopes(ApiScope.ARTICLES_WRITE)
   createArticle(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: CreateArticleInput,
@@ -50,6 +55,7 @@ export class ArticlesResolver {
   }
 
   @Mutation(() => Article)
+  @Scopes(ApiScope.ARTICLES_WRITE)
   updateArticle(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: UpdateArticleInput,
@@ -58,6 +64,7 @@ export class ArticlesResolver {
   }
 
   @Mutation(() => Boolean)
+  @Scopes(ApiScope.ARTICLES_WRITE)
   removeArticle(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,

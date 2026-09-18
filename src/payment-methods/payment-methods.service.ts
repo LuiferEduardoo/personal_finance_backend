@@ -96,6 +96,17 @@ export class PaymentMethodsService {
     );
   }
 
+  // valida que la cuenta exista y sea del usuario antes de moverle el saldo
+  async assertOwned(
+    accountId: string | null | undefined,
+    userId: string,
+  ): Promise<void> {
+    if (!accountId) {
+      return;
+    }
+    await this.findOne(accountId, userId);
+  }
+
   // valida el cupo antes de un gasto en tarjeta de crédito
   async assertCreditAvailable(
     accountId: string,

@@ -22,7 +22,12 @@ async function bootstrap() {
     origin: corsOrigin(),
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Apollo-Require-Preflight'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-API-Key',
+      'Apollo-Require-Preflight',
+    ],
   });
   await app.listen(process.env.PORT ?? 3000);
 }

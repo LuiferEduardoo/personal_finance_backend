@@ -2,7 +2,9 @@ import { UseGuards } from '@nestjs/common';
 import { Args, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Scopes } from '../auth/decorators/scopes.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
+import { ApiScope } from '../common/enums/api-scope.enum';
 import { CreateRecurringExpenseInput } from './dto/create-recurring-expense.input';
 import { UpdateRecurringExpenseInput } from './dto/update-recurring-expense.input';
 import { RecurringExpense } from './entities/recurring-expense.entity';
@@ -18,6 +20,7 @@ export class RecurringExpensesResolver {
   @Query(() => [RecurringExpense], {
     description: 'Plantillas de gastos recurrentes del usuario',
   })
+  @Scopes(ApiScope.RECURRING_READ)
   recurringExpenses(
     @CurrentUser() user: JwtPayload,
     @Args('includeInactive', { nullable: true, defaultValue: false })
@@ -27,6 +30,7 @@ export class RecurringExpensesResolver {
   }
 
   @Mutation(() => RecurringExpense)
+  @Scopes(ApiScope.RECURRING_WRITE)
   createRecurringExpense(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: CreateRecurringExpenseInput,
@@ -35,6 +39,7 @@ export class RecurringExpensesResolver {
   }
 
   @Mutation(() => RecurringExpense)
+  @Scopes(ApiScope.RECURRING_WRITE)
   updateRecurringExpense(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: UpdateRecurringExpenseInput,
@@ -43,6 +48,7 @@ export class RecurringExpensesResolver {
   }
 
   @Mutation(() => Boolean)
+  @Scopes(ApiScope.RECURRING_WRITE)
   removeRecurringExpense(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,
@@ -54,6 +60,8 @@ export class RecurringExpensesResolver {
     description:
       'Genera los gastos recurrentes vencidos (lo hace también un job diario). Devuelve cuántos se crearon.',
   })
+  // sin @Scopes a propósito: dispara la materialización de TODOS los usuarios,
+  // así que queda fuera del alcance de una API key
   runDueRecurringExpenses(): Promise<number> {
     return this.recurringExpensesService.runDue();
   }

@@ -5,9 +5,12 @@ import { JwtService } from '@nestjs/jwt';
 import { ApiKeysService } from '../../api-keys/api-keys.service';
 import { AuthenticatedRequest, BaseAuthGuard } from './base-auth.guard';
 
-// Resolvers de GraphQL: admite JWT de usuario o API key con scopes.
+// Solo JWT de usuario. Para operaciones que gestionan credenciales: una API
+// key no puede emitir, ampliar ni revocar API keys (escalada de privilegios).
 @Injectable()
-export class GqlAuthGuard extends BaseAuthGuard {
+export class GqlUserOnlyGuard extends BaseAuthGuard {
+  protected readonly allowApiKey = false;
+
   constructor(
     jwtService: JwtService,
     apiKeysService: ApiKeysService,

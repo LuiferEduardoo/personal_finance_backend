@@ -10,6 +10,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { ApiKey } from '../../api-keys/entities/api-key.entity';
 import { Article } from '../../articles/entities/article.entity';
 import { Authentication } from '../../auth/entities/authentication.entity';
 import { RefreshToken } from '../../auth/entities/refresh-token.entity';
@@ -95,6 +96,9 @@ export class User {
 
   @OneToMany(() => Article, (article) => article.user)
   articles: Article[];
+
+  @OneToMany(() => ApiKey, (apiKey) => apiKey.user)
+  apiKeys: ApiKey[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

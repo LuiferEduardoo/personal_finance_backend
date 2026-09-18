@@ -8,9 +8,11 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { JwtPayload } from '../auth/auth.service';
 import { CurrentUserRest } from '../auth/decorators/current-user-rest.decorator';
+import { Scopes } from '../auth/decorators/scopes.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Principal } from '../auth/principal';
+import { ApiScope } from '../common/enums/api-scope.enum';
 import { CreateExpenseInput } from '../transactions/dto/create-expense.input';
 import { Expense } from '../transactions/entities/expense.entity';
 import { ExpensesService } from '../transactions/expenses.service';
@@ -22,6 +24,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 @Controller('invoices')
 @UseGuards(JwtAuthGuard)
+@Scopes(ApiScope.INVOICES_WRITE)
 export class InvoicesController {
   constructor(
     private readonly invoicesService: InvoicesService,
@@ -36,7 +39,7 @@ export class InvoicesController {
     }),
   )
   analyzeImage(
-    @CurrentUserRest() user: JwtPayload,
+    @CurrentUserRest() user: Principal,
     @UploadedFile() image?: Express.Multer.File,
   ): Promise<ExpenseDraft> {
     if (!image) {
@@ -59,7 +62,7 @@ export class InvoicesController {
   // Analiza el texto de una factura y devuelve un borrador de gasto.
   @Post('analyze-text')
   analyzeText(
-    @CurrentUserRest() user: JwtPayload,
+    @CurrentUserRest() user: Principal,
     @Body('text') text?: unknown,
   ): Promise<ExpenseDraft> {
     if (typeof text !== 'string' || text.trim().length === 0) {
@@ -75,9 +78,9 @@ export class InvoicesController {
   // cuerpo, para que no se pueda crear a nombre de otro usuario.
   @Post('expense')
   createExpense(
-    @CurrentUserRest() user: JwtPayload,
+    @CurrentUserRest() user: Principal,
     @Body() input: CreateExpenseInput,
   ): Promise<Expense> {
-    return this.expensesService.create({ ...input, userId: user.sub });
+    return this.expensesService.create(user.sub, input);
   }
 }

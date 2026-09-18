@@ -4,10 +4,6 @@ import { ExpenseItemInput } from './expense-item.input';
 
 @InputType()
 export class CreateExpenseInput {
-  // temporal: se reemplazará por el usuario del token JWT
-  @Field(() => ID)
-  userId: string;
-
   @Field()
   description: string;
 

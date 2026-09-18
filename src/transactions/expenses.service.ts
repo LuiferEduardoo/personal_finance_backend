@@ -71,9 +71,9 @@ export class ExpensesService {
     });
   }
 
-  async findOne(id: string): Promise<Expense> {
+  async findOne(id: string, userId: string): Promise<Expense> {
     const expense = await this.expensesRepository.findOne({
-      where: { id },
+      where: { id, userId },
       relations: {
         category: true,
         paymentMethod: true,
@@ -86,18 +86,20 @@ export class ExpensesService {
     return expense;
   }
 
-  async create(input: CreateExpenseInput): Promise<Expense> {
+  async create(userId: string, input: CreateExpenseInput): Promise<Expense> {
     const { items, amount, categoryId, accountId, ...rest } = input;
-    const resolved = await this.resolveItems(rest.userId, items);
+    const resolved = await this.resolveItems(userId, items);
     const finalAmount = this.resolveAmount(amount, resolved);
 
-    // control de cupo antes de guardar (si la cuenta es de crédito)
+    // la cuenta debe ser del usuario, y con crédito hay que respetar el cupo
+    await this.accountsService.assertOwned(accountId, userId);
     if (accountId) {
       await this.accountsService.assertCreditAvailable(accountId, finalAmount);
     }
 
     const expense = this.expensesRepository.create({
       ...rest,
+      userId,
       paymentMethodId: accountId ?? null,
       categoryId: this.resolveCategory(categoryId, resolved),
       amount: finalAmount,
@@ -109,25 +111,26 @@ export class ExpensesService {
     await this.accountsService.adjustBalance(accountId ?? null, -finalAmount);
 
     // inventario: cada ítem tipo producto entra al stock ("hay")
-    await this.registerInventoryPurchases(rest.userId, saved, resolved);
+    await this.registerInventoryPurchases(userId, saved, resolved);
 
-    return this.findOne(saved.id);
+    return this.findOne(saved.id, userId);
   }
 
-  async update(input: UpdateExpenseInput): Promise<Expense> {
-    const expense = await this.findOne(input.id);
+  async update(userId: string, input: UpdateExpenseInput): Promise<Expense> {
+    const expense = await this.findOne(input.id, userId);
     // estado previo para ajustar el saldo
     const prevAccountId = expense.paymentMethodId;
     const prevAmount = expense.amount;
 
     const { id, items, amount, categoryId, accountId, ...changes } = input;
     if (accountId !== undefined) {
+      await this.accountsService.assertOwned(accountId, userId);
       expense.paymentMethodId = accountId;
     }
 
     if (items !== undefined) {
       // reemplazo total de ítems (no re-dispara inventario, para no duplicar ciclos)
-      const resolved = await this.resolveItems(expense.userId, items);
+      const resolved = await this.resolveItems(userId, items);
       await this.expenseItemsRepository.delete({ expenseId: id });
       expense.items = resolved.map((r) => this.buildItem(r));
       expense.amount = this.resolveAmount(amount, resolved);
@@ -160,11 +163,11 @@ export class ExpensesService {
 
     Object.assign(expense, changes);
     await this.expensesRepository.save(expense);
-    return this.findOne(id);
+    return this.findOne(id, userId);
   }
 
-  async remove(id: string): Promise<boolean> {
-    const expense = await this.findOne(id);
+  async remove(id: string, userId: string): Promise<boolean> {
+    const expense = await this.findOne(id, userId);
     // devuelve el importe a la cuenta
     await this.accountsService.adjustBalance(
       expense.paymentMethodId,

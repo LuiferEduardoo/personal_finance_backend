@@ -3,7 +3,9 @@ import { Args, ID, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Article } from '../articles/entities/article.entity';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Scopes } from '../auth/decorators/scopes.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
+import { ApiScope } from '../common/enums/api-scope.enum';
 import { RegisterProductPurchaseInput } from './dto/register-product-purchase.input';
 import { ConsumptionCycle } from './entities/consumption-cycle.entity';
 import { ProductPurchase } from './entities/product-purchase.entity';
@@ -17,6 +19,7 @@ export class PurchasesResolver {
   @Query(() => [ProductPurchase], {
     description: 'Historial de compras (opcional por artículo)',
   })
+  @Scopes(ApiScope.INVENTORY_READ)
   productPurchases(
     @CurrentUser() user: JwtPayload,
     @Args('articleId', { type: () => ID, nullable: true }) articleId?: string,
@@ -27,6 +30,7 @@ export class PurchasesResolver {
   @Query(() => [ConsumptionCycle], {
     description: 'Ciclos de consumo de un artículo',
   })
+  @Scopes(ApiScope.INVENTORY_READ)
   consumptionCycles(
     @CurrentUser() user: JwtPayload,
     @Args('articleId', { type: () => ID }) articleId: string,
@@ -38,6 +42,7 @@ export class PurchasesResolver {
     description:
       'Registra una compra. Acepta un artículo existente (articleId) o crea uno nuevo (newArticle). Abre ciclo de consumo si no hay uno y marca la lista de compras.',
   })
+  @Scopes(ApiScope.INVENTORY_WRITE)
   registerProductPurchase(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: RegisterProductPurchaseInput,
@@ -49,6 +54,7 @@ export class PurchasesResolver {
     description:
       'Marca el artículo como agotado: cierra el ciclo de consumo y lo agrega a la lista de compras',
   })
+  @Scopes(ApiScope.INVENTORY_WRITE)
   markProductDepleted(
     @CurrentUser() user: JwtPayload,
     @Args('articleId', { type: () => ID }) articleId: string,

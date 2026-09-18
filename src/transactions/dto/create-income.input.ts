@@ -3,10 +3,6 @@ import { Recurrence } from '../../common/enums/recurrence.enum';
 
 @InputType()
 export class CreateIncomeInput {
-  // temporal: se reemplazará por el usuario del token JWT
-  @Field(() => ID)
-  userId: string;
-
   @Field()
   description: string;
 

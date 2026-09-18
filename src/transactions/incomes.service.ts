@@ -43,9 +43,9 @@ export class IncomesService {
     });
   }
 
-  async findOne(id: string): Promise<Income> {
+  async findOne(id: string, userId: string): Promise<Income> {
     const income = await this.incomesRepository.findOne({
-      where: { id },
+      where: { id, userId },
       relations: { category: true, paymentMethod: true },
     });
     if (!income) {
@@ -54,25 +54,28 @@ export class IncomesService {
     return income;
   }
 
-  async create(input: CreateIncomeInput): Promise<Income> {
+  async create(userId: string, input: CreateIncomeInput): Promise<Income> {
     const { accountId, ...rest } = input;
+    await this.accountsService.assertOwned(accountId, userId);
     const income = this.incomesRepository.create({
       ...rest,
+      userId,
       paymentMethodId: accountId ?? null,
     });
     const saved = await this.incomesRepository.save(income);
     // el ingreso entra a la cuenta: sube el saldo
     await this.accountsService.adjustBalance(accountId ?? null, saved.amount);
-    return this.findOne(saved.id);
+    return this.findOne(saved.id, userId);
   }
 
-  async update(input: UpdateIncomeInput): Promise<Income> {
-    const income = await this.findOne(input.id);
+  async update(userId: string, input: UpdateIncomeInput): Promise<Income> {
+    const income = await this.findOne(input.id, userId);
     const prevAccountId = income.paymentMethodId;
     const prevAmount = income.amount;
 
     const { id, accountId, ...changes } = input;
     if (accountId !== undefined) {
+      await this.accountsService.assertOwned(accountId, userId);
       income.paymentMethodId = accountId;
     }
     Object.assign(income, changes);
@@ -89,11 +92,11 @@ export class IncomesService {
         income.amount,
       );
     }
-    return this.findOne(id);
+    return this.findOne(id, userId);
   }
 
-  async remove(id: string): Promise<boolean> {
-    const income = await this.findOne(id);
+  async remove(id: string, userId: string): Promise<boolean> {
+    const income = await this.findOne(id, userId);
     // saca el importe de la cuenta
     await this.accountsService.adjustBalance(
       income.paymentMethodId,

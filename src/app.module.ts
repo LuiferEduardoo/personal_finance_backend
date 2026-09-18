@@ -8,6 +8,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppResolver } from './app.resolver';
 import { AppService } from './app.service';
+import { ApiKeysModule } from './api-keys/api-keys.module';
 import { ArticlesModule } from './articles/articles.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
@@ -41,6 +42,7 @@ import { UsersModule } from './users/users.module';
       formatError,
     }),
     UsersModule,
+    ApiKeysModule,
     AuthModule,
     CategoriesModule,
     PaymentMethodsModule,

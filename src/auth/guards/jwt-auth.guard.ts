@@ -1,33 +1,22 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { ExecutionContext, Injectable } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { JwtPayload } from '../auth.service';
+import { ApiKeysService } from '../../api-keys/api-keys.service';
+import { AuthenticatedRequest, BaseAuthGuard } from './base-auth.guard';
 
 // Igual que GqlAuthGuard pero para controllers REST: obtiene el request
 // del contexto HTTP en vez del contexto GraphQL.
 @Injectable()
-export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
+export class JwtAuthGuard extends BaseAuthGuard {
+  constructor(
+    jwtService: JwtService,
+    apiKeysService: ApiKeysService,
+    reflector: Reflector,
+  ) {
+    super(jwtService, apiKeysService, reflector);
+  }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
-
-    const authHeader: string | undefined = request?.headers?.authorization;
-    const [scheme, token] = authHeader?.split(' ') ?? [];
-    if (scheme !== 'Bearer' || !token) {
-      throw new UnauthorizedException('Falta el token de acceso');
-    }
-
-    try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-      request.user = payload;
-      return true;
-    } catch {
-      throw new UnauthorizedException('Token de acceso inválido o expirado');
-    }
+  protected getRequest(context: ExecutionContext): AuthenticatedRequest {
+    return context.switchToHttp().getRequest<AuthenticatedRequest>();
   }
 }

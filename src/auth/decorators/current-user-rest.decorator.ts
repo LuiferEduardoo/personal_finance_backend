@@ -1,10 +1,10 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { JwtPayload } from '../auth.service';
+import { Principal } from '../principal';
 
-// Igual que CurrentUser pero para controllers REST: lee el usuario que
+// Igual que CurrentUser pero para controllers REST: lee el principal que
 // JwtAuthGuard deja en el request HTTP.
 export const CurrentUserRest = createParamDecorator(
-  (_data: unknown, context: ExecutionContext): JwtPayload => {
-    return context.switchToHttp().getRequest().user;
+  (_data: unknown, context: ExecutionContext): Principal => {
+    return context.switchToHttp().getRequest().user as Principal;
   },
 );

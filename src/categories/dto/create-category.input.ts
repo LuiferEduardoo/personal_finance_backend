@@ -3,10 +3,6 @@ import { TransactionKind } from '../../common/enums/transaction-kind.enum';
 
 @InputType()
 export class CreateCategoryInput {
-  // temporal: se reemplazará por el usuario del token JWT
-  @Field(() => ID)
-  userId: string;
-
   @Field()
   name: string;
 

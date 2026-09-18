@@ -167,8 +167,7 @@ export class RecurringExpensesService {
       discount: item.discount,
       description: item.description ?? undefined,
     }));
-    await this.expensesService.create({
-      userId: recurring.userId,
+    await this.expensesService.create(recurring.userId, {
       description: recurring.description,
       amount: items.length ? undefined : (recurring.amount ?? undefined),
       items: items.length ? items : undefined,

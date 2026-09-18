@@ -2,7 +2,9 @@ import { UseGuards } from '@nestjs/common';
 import { Args, ID, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { JwtPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Scopes } from '../auth/decorators/scopes.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
+import { ApiScope } from '../common/enums/api-scope.enum';
 import { CreateAccountInput } from './dto/create-account.input';
 import { TransferInput } from './dto/transfer.input';
 import { UpdateAccountInput } from './dto/update-account.input';
@@ -18,6 +20,7 @@ export class PaymentMethodsResolver {
   @Query(() => [PaymentMethod], {
     description: 'Cuentas del usuario (efectivo, banco, tarjeta, etc.)',
   })
+  @Scopes(ApiScope.ACCOUNTS_READ)
   accounts(
     @CurrentUser() user: JwtPayload,
     @Args('includeInactive', { nullable: true, defaultValue: false })
@@ -27,6 +30,7 @@ export class PaymentMethodsResolver {
   }
 
   @Query(() => PaymentMethod)
+  @Scopes(ApiScope.ACCOUNTS_READ)
   account(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,
@@ -35,6 +39,7 @@ export class PaymentMethodsResolver {
   }
 
   @Mutation(() => PaymentMethod)
+  @Scopes(ApiScope.ACCOUNTS_WRITE)
   createAccount(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: CreateAccountInput,
@@ -43,6 +48,7 @@ export class PaymentMethodsResolver {
   }
 
   @Mutation(() => PaymentMethod)
+  @Scopes(ApiScope.ACCOUNTS_WRITE)
   updateAccount(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: UpdateAccountInput,
@@ -51,6 +57,7 @@ export class PaymentMethodsResolver {
   }
 
   @Mutation(() => Boolean)
+  @Scopes(ApiScope.ACCOUNTS_WRITE)
   removeAccount(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,
@@ -61,6 +68,7 @@ export class PaymentMethodsResolver {
   @Query(() => [AccountTransfer], {
     description: 'Transferencias entre cuentas (opcional por cuenta)',
   })
+  @Scopes(ApiScope.ACCOUNTS_READ)
   accountTransfers(
     @CurrentUser() user: JwtPayload,
     @Args('accountId', { type: () => ID, nullable: true }) accountId?: string,
@@ -72,6 +80,7 @@ export class PaymentMethodsResolver {
     description:
       'Transfiere saldo entre cuentas. Transferir a una cuenta de crédito paga la tarjeta.',
   })
+  @Scopes(ApiScope.ACCOUNTS_WRITE)
   transferBetweenAccounts(
     @CurrentUser() user: JwtPayload,
     @Args('input') input: TransferInput,
@@ -82,6 +91,7 @@ export class PaymentMethodsResolver {
   @Mutation(() => PaymentMethod, {
     description: 'Recalcula el saldo de la cuenta desde sus movimientos',
   })
+  @Scopes(ApiScope.ACCOUNTS_WRITE)
   recalculateAccountBalance(
     @CurrentUser() user: JwtPayload,
     @Args('id', { type: () => ID }) id: string,
