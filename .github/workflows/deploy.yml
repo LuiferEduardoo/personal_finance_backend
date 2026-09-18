@@ -68,7 +68,7 @@ jobs:
             CONTAINER=personal_finance_app
             IMAGE="${{ needs.build.outputs.image }}:${{ github.sha }}"
             APP_PORT="${{ secrets.APP_PORT }}"
-            APP_PORT="${APP_PORT:-3000}"
+            APP_PORT="${APP_PORT:-3001}"
             GHCR_TOKEN="${{ secrets.GHCR_TOKEN }}"
 
             # login solo si hay token (package privado). Sin token se asume público.
@@ -88,8 +88,8 @@ jobs:
               --name "$CONTAINER" \
               --restart unless-stopped \
               --env-file .env \
-              -e PORT=3000 \
-              -p "${APP_PORT}:3000" \
+              -e PORT=3001 \
+              -p "${APP_PORT}:3001" \
               "$IMAGE"
 
             # verifica que quedó arriba (el arranque aplica migraciones)
