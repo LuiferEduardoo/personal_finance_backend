@@ -2,7 +2,18 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MarketDataModule } from '../market-data/market-data.module';
 import { UsersModule } from '../users/users.module';
+import { SecretBox } from '../common/crypto/secret-box';
 import { BenchmarksService } from './benchmarks.service';
+import { BrokerConnectionsResolver } from './broker-connections.resolver';
+import { BrokerConnectionsService } from './broker-connections.service';
+import { BinanceConnector } from './connectors/binance.connector';
+import { BrokerConnectorRegistry } from './connectors/connector.registry';
+import { EtoroConnector } from './connectors/etoro.connector';
+import { InteractiveBrokersConnector } from './connectors/interactive-brokers.connector';
+import { XtbConnector } from './connectors/xtb.connector';
+import { BrokerConnection } from './entities/broker-connection.entity';
+import { InvestmentSyncService } from './investment-sync.service';
+import { InvestmentsSyncCron } from './investments-sync.cron';
 import { ImportBatch } from './entities/import-batch.entity';
 import { InvestmentAccount } from './entities/investment-account.entity';
 import { InvestmentCashBalance } from './entities/investment-cash-balance.entity';
@@ -37,6 +48,7 @@ import { SnapshotsService } from './snapshots.service';
       InvestmentPosition,
       PortfolioSnapshot,
       ImportBatch,
+      BrokerConnection,
     ]),
     MarketDataModule,
     UsersModule,
@@ -56,6 +68,16 @@ import { SnapshotsService } from './snapshots.service';
     PdfStatementService,
     ProfileRegistry,
     SpreadsheetParserService,
+    SecretBox,
+    BinanceConnector,
+    EtoroConnector,
+    InteractiveBrokersConnector,
+    XtbConnector,
+    BrokerConnectorRegistry,
+    BrokerConnectionsService,
+    BrokerConnectionsResolver,
+    InvestmentSyncService,
+    InvestmentsSyncCron,
   ],
   controllers: [InvestmentsImportController],
   exports: [
@@ -65,6 +87,8 @@ import { SnapshotsService } from './snapshots.service';
     PositionsService,
     PortfolioAnalyticsService,
     SnapshotsService,
+    BrokerConnectionsService,
+    InvestmentSyncService,
   ],
 })
 export class InvestmentsModule {}

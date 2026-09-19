@@ -1061,11 +1061,72 @@ Un statement en PDF **no admite re-mapeo**: no hay columnas que remapear, así q
 
 El archivo original se archiva en `import_batches.file_data` para poder re-parsear con otro mapeo, y **se borra al confirmar o descartar**.
 
+### Conexión automática con brókers
+
+> ⚠️ **Todo lo relacionado con credenciales está cerrado a las API keys por partida doble**: el resolver usa `GqlUserOnlyGuard` (rechaza cualquier principal que no sea un usuario con JWT) **y** ninguna operación declara `@Scopes`, lo que ya cierra por defecto a las API keys. Verificado: una API key con scope `ALL` recibe `UNAUTHENTICATED` en todas ellas.
+
+#### Brókers soportados y qué credenciales pide cada uno
+
+| Bróker | Credenciales | Vía | Notas |
+| --- | --- | --- | --- |
+| Binance | `apiKey`, `apiSecret` | REST firmado con HMAC-SHA256 | Crea la key en modo **solo lectura** |
+| eToro | `apiKey`, `userKey` | REST | Settings > Trading > API Key Management, permiso **Read**. **Solo 1 año de historial** |
+| Interactive Brokers | `token`, `queryId` | Flex Web Service v3 | Crea una *Activity Flex Query* y un token en Account Management |
+| XTB | `userId`, `password` | WebSocket xAPI (**no oficial**) | Ver el aviso de abajo |
+
+Se usa el **Flex Web Service** de IBKR y no la Client Portal API porque esta última exige un gateway corriendo en local y un 2FA manual a diario, inviable para un backend desatendido.
+
+> 🔴 **Aviso sobre XTB**: XTB no tiene API oficial. La vía no oficial se autentica con tu **usuario y contraseña REALES de trading**, no con una API key revocable de solo lectura. Las credenciales se cifran con AES-256-GCM, pero **un volcado de la base de datos más una fuga de `INVESTMENTS_ENCRYPTION_KEY` equivale a comprometer tu cuenta de trading entera**. Empieza con credenciales de **demo**. Además, XTB puede cambiar el protocolo sin aviso y sin soporte.
+
+#### Cómo se guardan las credenciales
+
+Entran por `createBrokerConnection` y **no vuelven a salir jamás**: el único campo que GraphQL expone sobre ellas es `hasCredentials: Boolean`. Las columnas cifradas no tienen `@Field`, así que ni siquiera se pueden pedir.
+
+- **AES-256-GCM** con IV aleatorio de 12 bytes por cifrado y etiqueta de autenticación de 16 bytes.
+- El **AAD lleva el id de la conexión**: un atacante con acceso de escritura a la base **no puede mover** un secreto de una fila a otra, porque el descifrado falla.
+- La clave sale de `INVESTMENTS_ENCRYPTION_KEY`, que debe ser **exactamente 64 caracteres hexadecimales** (`openssl rand -hex 32`). No se deriva de una frase con PBKDF2: eso invitaría a poner una contraseña débil donde hace falta entropía de verdad.
+- Se valida en el **primer uso**, no al arrancar: el backend levanta sin ella mientras no haya conexiones.
+
+**Rotación sin cortar el servicio**: pon la clave vieja en `INVESTMENTS_ENCRYPTION_KEY_PREVIOUS`, la nueva en `INVESTMENTS_ENCRYPTION_KEY` y ejecuta `rotateBrokerCredentials`. El descifrado prueba primero con la actual y cae a la anterior, así que las filas sin migrar siguen funcionando mientras la mutación las vuelve a sellar.
+
+#### Operaciones
+
+```graphql
+query { brokerConnections { id broker label status hasCredentials lastSyncedAt lastError } }
+
+mutation { createBrokerConnection(input: {
+  broker: BINANCE, label: "Binance principal",
+  credentials: { apiKey: "…", apiSecret: "…" }
+}) { id hasCredentials } }
+
+mutation { verifyBrokerConnection(id: "…") { status lastError } }
+mutation { syncBrokerConnection(id: "…") { fetched inserted duplicates partial errors warnings } }
+mutation { syncAllBrokerConnections { connectionId inserted duplicates errors } }
+mutation { rotateBrokerCredentials }
+```
+
+También: `updateBrokerConnection` (el `broker` **no** se puede cambiar: invalidaría credenciales y cursor) y `deleteBrokerConnection`.
+
+#### Estados de una conexión
+
+| Estado | Qué significa |
+| --- | --- |
+| `ACTIVE` | Última operación correcta |
+| `NEEDS_REAUTH` | El bróker rechazó las credenciales: hay que regenerarlas |
+| `ERROR` | Fallo puntual; el siguiente intento puede funcionar |
+| `DISABLED` | No se sincroniza |
+
+#### Sincronización
+
+`syncBrokerConnection` **es idempotente**: cada sincronización re-consulta a propósito una semana por detrás del cursor, porque deduplicar es gratis y ese solape es justo lo que atrapa las operaciones que el bróker liquida tarde o corrige después. Resincronizar un periodo ya traído devuelve `inserted: 0` y las cuenta en `duplicates`.
+
+Una conexión que falla **no aborta las demás**: cada una registra su propio error en `lastError` y el informe los devuelve por separado. Cada sincronización deja además un registro en el historial de lotes (`GET /investments/import/batches`, con `source: BROKER_SYNC`).
+
+El job `InvestmentsSyncCron` corre a las **01:30**, antes del refresco de precios de las 02:00, para que las posiciones nuevas entren en el refresco de esa misma noche. Solo toca las conexiones marcadas con `autoSync`.
+
 ### Alcance actual
 
-Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones), precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica, TWR, XIRR/MWR, comparación contra benchmarks e importación de CSV, XLSX y PDF.
-
-Pendiente: conexión automática con eToro, Interactive Brokers, Binance y XTB.
+**La feature está completa**: libro de 13 operaciones con FIFO y lotes fiscales, posiciones, efectivo multimoneda, métricas y distribuciones, precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica del patrimonio, TWR, XIRR/MWR, comparación contra benchmarks, importación de CSV, XLSX y PDF, y conexión automática con Binance, eToro, Interactive Brokers y XTB.
 
 ---
 
@@ -1156,6 +1217,10 @@ query { health }
 ### `ImportStatus`
 
 `PARSED` · `COMMITTED` · `FAILED` · `DISCARDED`
+
+### `BrokerConnectionStatus`
+
+`ACTIVE` · `NEEDS_REAUTH` · `ERROR` · `DISABLED`
 
 ---
 
