@@ -963,8 +963,10 @@ La valoración diaria usa la tasa **de cada fecha**, resolviendo por identidad �
 
 | Hora | Job | Qué hace |
 | --- | --- | --- |
+| 01:30 | `InvestmentsSyncCron` | Sincroniza las conexiones con brókers marcadas con `autoSync` |
 | 02:00 | `MarketDataCron` | Recalcula qué instrumentos necesitan precio diario, los refresca y drena los backfills pendientes |
 | 02:30 | `SnapshotsCron` | Refresca tasas de cambio y reconstruye la serie diaria de cada usuario |
+| día 1, 03:30 | `MarketDataCron` | Descarga dividendos y splits anunciados (mensual: 2 créditos por instrumento) |
 
 Ambos llevan `try/catch` (un fallo del proveedor no puede tumbar el scheduler), bandera en proceso y **cerrojo consultivo de Postgres**, para que dos instancias del backend no se solapen.
 
@@ -1124,9 +1126,39 @@ Una conexión que falla **no aborta las demás**: cada una registra su propio er
 
 El job `InvestmentsSyncCron` corre a las **01:30**, antes del refresco de precios de las 02:00, para que las posiciones nuevas entren en el refresco de esa misma noche. Solo toca las conexiones marcadas con `autoSync`.
 
+### Acciones corporativas (dividendos y splits)
+
+> **Se SUGIEREN, nunca se registran solas.** Es la decisión de corrección más importante de esta parte: insertarlas automáticamente duplicaría todo lo que la sincronización con el bróker ya trae, porque el bróker **ya** reporta el dividendo que pagó y el split que aplicó. Lo que aporta el proveedor de datos es detectar lo que **falta**, no rellenarlo por su cuenta.
+
+```graphql
+query { pendingCorporateActions {
+  id type symbol exDate
+  amountPerShare quantityHeld estimatedAmount
+  ratioNumerator ratioDenominator currency description accountIds
+} }
+```
+
+Una acción aparece aquí solo si **las tres** cosas son ciertas:
+
+1. Su fecha es **posterior** a tu primera compra de ese activo.
+2. **Tenías títulos** ese día, según tu propio libro.
+3. **No hay ya** una operación tuya que la cubra (±5 días, porque los brókers liquidan con desfase).
+
+`quantityHeld` es lo que tenías en la fecha ex según tu libro, y `estimatedAmount` es `quantityHeld × amountPerShare`.
+
+```graphql
+mutation { applyCorporateAction(actionId: "…", accountId: "…") { id type occurredOn amount } }
+```
+
+Registra la operación solo cuando tú confirmas que falta. Una vez aplicada desaparece de `pendingCorporateActions`, y volver a aplicarla devuelve `CONFLICT` por el índice de deduplicación.
+
+`refreshCorporateActions` descarga dividendos y splits de lo que tengas en cartera. Cuesta **2 créditos por instrumento**, así que el job automático corre **mensualmente** (día 1 a las 03:30): estos datos cambian poco y consultarlos a diario sería tirar presupuesto.
+
+Un split `4:1` se guarda como `ratioNumerator: 4, ratioDenominator: 1`, es decir, la cantidad se multiplica por 4.
+
 ### Alcance actual
 
-**La feature está completa**: libro de 13 operaciones con FIFO y lotes fiscales, posiciones, efectivo multimoneda, métricas y distribuciones, precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica del patrimonio, TWR, XIRR/MWR, comparación contra benchmarks, importación de CSV, XLSX y PDF, y conexión automática con Binance, eToro, Interactive Brokers y XTB.
+**La feature está completa**: libro de 13 operaciones con FIFO y lotes fiscales, posiciones, efectivo multimoneda, métricas y distribuciones, precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica del patrimonio, TWR, XIRR/MWR, comparación contra benchmarks, importación de CSV, XLSX y PDF, conexión automática con Binance, eToro, Interactive Brokers y XTB, y detección de dividendos y splits pendientes.
 
 ---
 
@@ -1221,6 +1253,10 @@ query { health }
 ### `BrokerConnectionStatus`
 
 `ACTIVE` · `NEEDS_REAUTH` · `ERROR` · `DISABLED`
+
+### `CorporateActionType`
+
+`DIVIDEND` · `SPLIT`
 
 ---
 

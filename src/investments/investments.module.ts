@@ -5,6 +5,8 @@ import { UsersModule } from '../users/users.module';
 import { SecretBox } from '../common/crypto/secret-box';
 import { BenchmarksService } from './benchmarks.service';
 import { BrokerConnectionsResolver } from './broker-connections.resolver';
+import { InvestmentCorporateActionsService } from './corporate-actions.service';
+import { CorporateActionsResolver } from './corporate-actions.resolver';
 import { BrokerConnectionsService } from './broker-connections.service';
 import { BinanceConnector } from './connectors/binance.connector';
 import { BrokerConnectorRegistry } from './connectors/connector.registry';
@@ -78,6 +80,8 @@ import { SnapshotsService } from './snapshots.service';
     BrokerConnectionsResolver,
     InvestmentSyncService,
     InvestmentsSyncCron,
+    InvestmentCorporateActionsService,
+    CorporateActionsResolver,
   ],
   controllers: [InvestmentsImportController],
   exports: [

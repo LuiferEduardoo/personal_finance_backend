@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CorporateActionsService } from './corporate-actions.service';
 import { FxRate } from './entities/fx-rate.entity';
+import { InstrumentCorporateAction } from './entities/instrument-corporate-action.entity';
 import { InstrumentPrice } from './entities/instrument-price.entity';
 import { InstrumentSymbolAlias } from './entities/instrument-symbol-alias.entity';
 import { Instrument } from './entities/instrument.entity';
@@ -27,6 +29,7 @@ import { TwelveDataClient } from './twelve-data.client';
       FxRate,
       MarketDataUsage,
       InstrumentSymbolAlias,
+      InstrumentCorporateAction,
     ]),
   ],
   providers: [
@@ -39,6 +42,7 @@ import { TwelveDataClient } from './twelve-data.client';
     PricesService,
     FxService,
     MarketDataCron,
+    CorporateActionsService,
   ],
   exports: [
     TypeOrmModule,
@@ -47,6 +51,7 @@ import { TwelveDataClient } from './twelve-data.client';
     FxService,
     MarketDataRateLimiter,
     TwelveDataClient,
+    CorporateActionsService,
   ],
 })
 export class MarketDataModule {}

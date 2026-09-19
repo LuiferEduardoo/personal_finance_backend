@@ -2,12 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { CorporateActionsService } from './corporate-actions.service';
 import { InstrumentsService } from './instruments.service';
 import { PricesService } from './prices.service';
 
 // Cerrojo de Postgres: dos instancias del backend no pueden solaparse en el
 // mismo job, y un job que se alarga tampoco se pisa a sí mismo.
 const PRICES_LOCK = 'market_data_prices';
+const ACTIONS_LOCK = 'market_data_corporate_actions';
 
 // Solo precios y tasas. Los snapshots van en investments/snapshots.cron.ts,
 // porque la dependencia entre módulos va investments -> market-data y nunca al
@@ -20,10 +22,12 @@ const PRICES_LOCK = 'market_data_prices';
 export class MarketDataCron {
   private readonly logger = new Logger(MarketDataCron.name);
   private pricesRunning = false;
+  private actionsRunning = false;
 
   constructor(
     private readonly pricesService: PricesService,
     private readonly instrumentsService: InstrumentsService,
+    private readonly corporateActionsService: CorporateActionsService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
@@ -54,6 +58,32 @@ export class MarketDataCron {
       );
     } finally {
       this.pricesRunning = false;
+    }
+  }
+
+  // Mensual, el día 1 a las 03:30: dividendos y splits cambian poco y cuestan
+  // 2 créditos por instrumento. Consultarlos a diario sería tirar presupuesto.
+  @Cron('30 3 1 * *')
+  async refreshCorporateActions(): Promise<void> {
+    if (this.actionsRunning) {
+      return;
+    }
+    this.actionsRunning = true;
+    try {
+      await this.withLock(ACTIONS_LOCK, async () => {
+        const report = await this.corporateActionsService.refresh();
+        this.logger.log(
+          `Acciones corporativas: ${report.instruments} instrumento(s), ` +
+            `${report.dividends} dividendo(s), ${report.splits} split(s)` +
+            (report.budgetExhausted ? ' (presupuesto agotado)' : ''),
+        );
+      });
+    } catch (error) {
+      this.logger.error(
+        `Fallo trayendo acciones corporativas: ${(error as Error).message}`,
+      );
+    } finally {
+      this.actionsRunning = false;
     }
   }
 

@@ -164,6 +164,62 @@ export class TwelveDataClient {
     return series?.bars ?? [];
   }
 
+  // Dividendos anunciados. VERIFICADO contra la API: la respuesta es
+  // { meta, dividends: [{ ex_date, amount }] }.
+  async dividends(
+    symbol: string,
+    from: string,
+    to: string,
+  ): Promise<{ exDate: string; amount: number }[]> {
+    const payload = await this.request<Record<string, unknown>>('/dividends', {
+      symbol,
+      start_date: from,
+      end_date: to,
+    });
+    if (payload.status === 'error' || !Array.isArray(payload.dividends)) {
+      return [];
+    }
+    return (payload.dividends as Record<string, string>[])
+      .map((row) => ({
+        exDate: String(row.ex_date ?? '').substring(0, 10),
+        amount: Number(row.amount),
+      }))
+      .filter((row) => row.exDate && Number.isFinite(row.amount));
+  }
+
+  // Splits anunciados. VERIFICADO: { meta, splits: [{ date, description,
+  // ratio, from_factor, to_factor }] }. Un "4-for-1" llega como
+  // from_factor 4 y to_factor 1, y multiplica la cantidad por 4.
+  async splits(
+    symbol: string,
+    from: string,
+    to: string,
+  ): Promise<
+    {
+      date: string;
+      numerator: number;
+      denominator: number;
+      description: string | null;
+    }[]
+  > {
+    const payload = await this.request<Record<string, unknown>>('/splits', {
+      symbol,
+      start_date: from,
+      end_date: to,
+    });
+    if (payload.status === 'error' || !Array.isArray(payload.splits)) {
+      return [];
+    }
+    return (payload.splits as Record<string, string>[])
+      .map((row) => ({
+        date: String(row.date ?? '').substring(0, 10),
+        numerator: Number(row.from_factor),
+        denominator: Number(row.to_factor),
+        description: row.description ?? null,
+      }))
+      .filter((row) => row.date && row.numerator > 0 && row.denominator > 0);
+  }
+
   async symbolSearch(query: string): Promise<SymbolMatch[]> {
     const payload = await this.request<Record<string, unknown>>(
       '/symbol_search',
