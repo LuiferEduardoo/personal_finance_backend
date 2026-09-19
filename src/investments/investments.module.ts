@@ -19,6 +19,7 @@ import { PortfolioAnalyticsService } from './portfolio-analytics.service';
 import { PortfolioResolver } from './portfolio.resolver';
 import { PositionsService } from './positions.service';
 import { ImportService } from './import/import.service';
+import { PdfStatementService } from './import/pdf-statement.service';
 import { ProfileRegistry } from './import/profile-registry';
 import { SpreadsheetParserService } from './import/spreadsheet-parser.service';
 import { InvestmentsImportController } from './investments-import.controller';
@@ -52,6 +53,7 @@ import { SnapshotsService } from './snapshots.service';
     SnapshotsCron,
     BenchmarksService,
     ImportService,
+    PdfStatementService,
     ProfileRegistry,
     SpreadsheetParserService,
   ],

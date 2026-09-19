@@ -514,7 +514,6 @@ export class InvestmentTransactionsService {
         quantity,
         amount,
         currency,
-        externalId: null,
         occurrenceIndex,
       }),
     };

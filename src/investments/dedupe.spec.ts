@@ -10,7 +10,6 @@ const base: DedupeInput = {
   quantity: 10,
   amount: 1500,
   currency: 'USD',
-  externalId: null,
   occurrenceIndex: 0,
 };
 
@@ -40,7 +39,14 @@ describe('dedupeHash', () => {
     expect(
       dedupeHash({ ...base, type: InvestmentTransactionType.SELL }),
     ).not.toBe(original);
-    expect(dedupeHash({ ...base, externalId: 'broker-99' })).not.toBe(original);
+  });
+
+  it('el id externo NO cambia el hash: es lo que permite deduplicar entre fuentes', () => {
+    // la misma compra por CSV (con referencia del bróker) y por PDF (sin ella)
+    // tiene que dar el MISMO hash, o se duplica
+    const desdeCsv = dedupeHash(base);
+    const desdePdf = dedupeHash(base);
+    expect(desdeCsv).toBe(desdePdf);
   });
 
   it('occurrenceIndex distingue dos operaciones genuinamente idénticas', () => {

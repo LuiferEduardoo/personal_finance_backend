@@ -29,6 +29,7 @@ import {
 import { InvestmentTransaction } from '../entities/investment-transaction.entity';
 import { InvestmentAccountsService } from '../investment-accounts.service';
 import { PositionsService } from '../positions.service';
+import { PdfStatementService } from './pdf-statement.service';
 import { ProfileRegistry } from './profile-registry';
 import { ParserProfile, normalizeHeader } from './profiles/profile.types';
 import {
@@ -52,6 +53,7 @@ export class ImportService {
     private readonly transactionsRepository: Repository<InvestmentTransaction>,
     private readonly parser: SpreadsheetParserService,
     private readonly registry: ProfileRegistry,
+    private readonly pdfService: PdfStatementService,
     private readonly instrumentsService: InstrumentsService,
     private readonly accountsService: InvestmentAccountsService,
     private readonly positionsService: PositionsService,
@@ -69,6 +71,12 @@ export class ImportService {
     if (accountId) {
       await this.accountsService.assertOwned(accountId, userId);
     }
+    // el PDF tiene su propio extractor, pero desemboca en el MISMO borrador:
+    // no hay un camino paralelo con reglas propias
+    if (this.isPdf(file.originalname, file.mimetype)) {
+      return this.analyzePdf(userId, file, accountId);
+    }
+
     const table = await this.parser.parse(
       file.buffer,
       file.originalname,
@@ -116,6 +124,83 @@ export class ImportService {
       sheetName: table.sheetName,
       stats,
       rows,
+    };
+  }
+
+  private isPdf(fileName: string, mimeType: string): boolean {
+    return /\.pdf$/i.test(fileName) || mimeType === 'application/pdf';
+  }
+
+  private async analyzePdf(
+    userId: string,
+    file: { buffer: Buffer; originalname: string; mimetype: string },
+    accountId?: string,
+  ): Promise<ImportBatchDraft> {
+    const extracted = await this.pdfService.extractTransactions(file.buffer);
+
+    // resolución de instrumento y deduplicación: exactamente las mismas que en
+    // CSV y XLSX
+    const symbolCache = new Map<string, string | null>();
+    for (const row of extracted.rows) {
+      if (!row.type || !INSTRUMENT_REQUIRED_TYPES.includes(row.type)) {
+        continue;
+      }
+      const hint = row.symbol ?? row.isin;
+      if (!hint) {
+        row.needsInstrument = true;
+        row.errors.push(
+          'La operación necesita un instrumento y no se identificó',
+        );
+        continue;
+      }
+      row.instrumentId = await this.resolveSymbol(hint, symbolCache);
+      row.needsInstrument = row.instrumentId === null;
+      if (row.quantity === null || row.quantity <= 0) {
+        row.errors.push('La operación necesita una cantidad mayor que 0');
+      }
+    }
+    // y también las que no exigen instrumento pero sí traen símbolo
+    for (const row of extracted.rows) {
+      if (!row.instrumentId && (row.symbol || row.isin)) {
+        row.instrumentId = await this.resolveSymbol(
+          (row.symbol ?? row.isin)!,
+          symbolCache,
+        );
+      }
+    }
+    await this.markDuplicates(userId, extracted.rows, accountId);
+    const stats = this.summarize(extracted.rows);
+
+    const batch = await this.batchesRepository.save(
+      this.batchesRepository.create({
+        userId,
+        accountId: accountId ?? null,
+        source: ImportSource.PDF,
+        status: ImportStatus.PARSED,
+        broker: null,
+        fileName: file.originalname,
+        // el PDF no se re-parsea con otro mapeo: no hay columnas que remapear,
+        // así que guardarlo solo ocuparía espacio
+        fileData: null,
+        fileMimeType: file.mimetype,
+        parserProfile: 'pdf-llm',
+        columnMapping: null,
+        draft: extracted.rows,
+        stats: stats as unknown as Record<string, number>,
+      }),
+    );
+
+    return {
+      batchId: batch.id,
+      fileName: file.originalname,
+      detectedProfile: 'pdf-llm',
+      detectedBroker: 'manual',
+      confidence: 0,
+      columnMapping: {},
+      headers: [],
+      sheetName: null,
+      stats,
+      rows: extracted.rows,
     };
   }
 
@@ -381,6 +466,12 @@ export class ImportService {
     let instrumentId: string | null = null;
     let needsInstrument = false;
 
+    // se resuelve el instrumento SIEMPRE que la fila traiga símbolo, no solo
+    // cuando la operación lo exige: así un dividendo o una comisión quedan
+    // atribuidos a su activo y cuentan en "rendimiento por activo"
+    if (symbol || isin) {
+      instrumentId = await this.resolveSymbol(symbol ?? isin!, symbolCache);
+    }
     if (type && INSTRUMENT_REQUIRED_TYPES.includes(type)) {
       if (!symbol && !isin) {
         needsInstrument = true;
@@ -388,7 +479,7 @@ export class ImportService {
           'La operación necesita un instrumento y la fila no lo trae',
         );
       } else {
-        instrumentId = await this.resolveSymbol(symbol ?? isin!, symbolCache);
+        // solo bloquea cuando el instrumento es obligatorio y no se resolvió
         needsInstrument = instrumentId === null;
       }
       if (quantity === null || quantity <= 0) {
@@ -499,7 +590,6 @@ export class ImportService {
         quantity: row.quantity,
         amount: row.amount ?? 0,
         currency: row.currency ?? 'USD',
-        externalId: row.externalId,
         occurrenceIndex: 0,
       });
       const bucket = hashes.get(hash) ?? [];
@@ -580,7 +670,6 @@ export class ImportService {
         quantity: row.quantity,
         amount,
         currency,
-        externalId: row.externalId,
         occurrenceIndex: 0,
       }),
     };

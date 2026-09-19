@@ -35,8 +35,9 @@ const ALLOWED_MIME_TYPES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/octet-stream',
+  'application/pdf',
 ];
-const ALLOWED_EXTENSIONS = /\.(csv|tsv|txt|xlsx|xls)$/i;
+const ALLOWED_EXTENSIONS = /\.(csv|tsv|txt|xlsx|xls|pdf)$/i;
 
 interface CommitBody {
   batchId: string;
@@ -155,7 +156,7 @@ export class InvestmentsImportController {
     const extensionOk = ALLOWED_EXTENSIONS.test(file.originalname);
     if (!mimeOk && !extensionOk) {
       throw new BadRequestException(
-        'Formato no soportado: sube un CSV, TSV o XLSX',
+        'Formato no soportado: sube un CSV, TSV, XLSX o PDF',
       );
     }
     if (file.size > MAX_FILE_BYTES) {

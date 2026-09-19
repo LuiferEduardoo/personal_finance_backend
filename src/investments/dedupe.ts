@@ -9,7 +9,17 @@ import { InvestmentTransactionType } from '../common/enums/investment-transactio
 //
 // Junto al índice único (user_id, dedupe_hash) es lo que hace que reimportar el
 // mismo CSV o resincronizar el mismo periodo sea gratis, y lo que atrapa el
-// caso realmente molesto: la MISMA operación llegando por CSV y por API.
+// caso realmente molesto: la MISMA operación llegando por dos vías distintas.
+//
+// El externalId NO entra en el hash, a propósito. Entraba al principio, y eso
+// rompía justo el caso que el hash existe para cubrir: la misma compra llegando
+// por CSV (con la referencia del bróker) y por PDF o por API (sin ella) daba
+// dos hashes distintos y se duplicaba. El id externo ya tiene su propio índice
+// único (connection_id, external_id) para las sincronizaciones; aquí lo que
+// identifica la operación es su clave NATURAL.
+//
+// Dos operaciones genuinamente distintas con la misma clave natural el mismo
+// día se distinguen con occurrenceIndex: para eso está.
 export interface DedupeInput {
   userId: string;
   accountId: string;
@@ -19,7 +29,6 @@ export interface DedupeInput {
   quantity: number | null;
   amount: number;
   currency: string;
-  externalId: string | null;
   occurrenceIndex: number;
 }
 
@@ -35,7 +44,6 @@ export function dedupeHash(input: DedupeInput): string {
     (input.quantity ?? 0).toFixed(10),
     input.amount.toFixed(6),
     input.currency.toUpperCase(),
-    input.externalId ?? '',
     String(input.occurrenceIndex),
   ];
   return createHash('sha256').update(parts.join('|')).digest('hex');

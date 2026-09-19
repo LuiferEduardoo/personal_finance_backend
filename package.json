@@ -42,6 +42,7 @@
     "exceljs": "^4.4.0",
     "graphql": "^16.14.2",
     "openai": "^6.49.0",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",

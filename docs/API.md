@@ -1002,6 +1002,8 @@ Devuelve el borrador:
 
 **Los duplicados se marcan aquí, antes de confirmar**, calculando el `dedupeHash` y consultando el índice único. Así ves qué se va a saltar en vez de descubrirlo después. También se marcan los duplicados *dentro del mismo archivo*: entra el primero y los demás quedan señalados.
 
+El hash se calcula sobre la **clave natural** de la operación (usuario, cuenta, tipo, fecha, instrumento, cantidad, importe, moneda) y **no incluye la referencia del bróker**, a propósito: si la incluyera, la misma compra llegando por CSV (con referencia) y por PDF (sin ella) daría dos hashes distintos y se duplicaría, que es justo lo que el hash existe para evitar. El id externo conserva su propio índice único para las sincronizaciones.
+
 Una fila con `needsInstrument: true` o con `errors` **no se importa**; el resto del archivo sí.
 
 #### Detección de columnas
@@ -1035,6 +1037,20 @@ Persiste en una transacción, reconstruye posiciones y pide el histórico de pre
 
 **Es idempotente en los dos ejes**: confirmar el mismo lote otra vez devuelve `alreadyCommitted: true` sin insertar nada, y volver a subir el mismo archivo marca todas sus filas como duplicadas (`importable: 0`).
 
+#### PDF
+
+El mismo endpoint `analyze` acepta PDF. El camino es distinto pero **desemboca en el mismo borrador**, con las mismas validaciones, la misma resolución de instrumento y la misma detección de duplicados: no hay una vía paralela con reglas propias.
+
+1. Se extrae la capa de texto del PDF.
+2. Si el PDF **no tiene texto** (es un escaneo) se **rechaza** con un mensaje claro que te remite al CSV o XLSX. No se intenta OCR: adivinar cifras de un escaneo es peor que pedirte el archivo bueno.
+3. El texto se trocea por líneas (sin partir ninguna) y se manda a GPT-4o con *structured outputs*, el mismo patrón del análisis de facturas.
+
+La instrucción al modelo es extraer, nunca interpretar: se le prohíbe explícitamente inventar operaciones, convertir monedas o calcular totales, y se le exige devolver los importes **siempre positivos** porque la dirección la marca el tipo.
+
+Un statement en PDF **no admite re-mapeo**: no hay columnas que remapear, así que el archivo no se archiva.
+
+> El PDF es el formato menos fiable de los tres y consume tu cuota de OpenAI. Si tu bróker ofrece CSV o XLSX, úsalo.
+
 #### Otros endpoints
 
 | Endpoint | Qué hace |
@@ -1047,9 +1063,9 @@ El archivo original se archiva en `import_batches.file_data` para poder re-parse
 
 ### Alcance actual
 
-Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones), precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica, TWR, XIRR/MWR, comparación contra benchmarks e importación CSV/XLSX.
+Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones), precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica, TWR, XIRR/MWR, comparación contra benchmarks e importación de CSV, XLSX y PDF.
 
-Pendiente: importación de PDF y conexión automática con eToro, Interactive Brokers, Binance y XTB.
+Pendiente: conexión automática con eToro, Interactive Brokers, Binance y XTB.
 
 ---
 
