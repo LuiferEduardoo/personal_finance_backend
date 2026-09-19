@@ -884,6 +884,8 @@ query { portfolioEvolution(from: "2026-01-01", to: "2026-09-19") {
 
 `isEstimated` marca los días cuya valoración usó un precio o una tasa arrastrados de un día anterior (fines de semana, festivos, huecos del proveedor).
 
+> ⚠️ **`isStale`**: `portfolioSummary` lee posiciones y precios **en vivo**, mientras que `portfolioEvolution` y `portfolioReturns` leen los **snapshots persistidos**. Si escribes operaciones y no reconstruyes, los dos divergen: en pruebas la diferencia llegó a **20 puntos de TWR**. Cuando `isStale` es `true`, ejecuta `rebuildPortfolioSnapshots` (no gasta créditos) o espera al job de las 02:30.
+
 ### 🔒 `portfolioReturns` — las tres rentabilidades
 
 ```graphql

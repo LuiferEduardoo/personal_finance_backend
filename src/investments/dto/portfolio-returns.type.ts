@@ -67,4 +67,12 @@ export class PortfolioReturns {
 
   @Field(() => Float)
   dividends: number;
+
+  @Field({
+    description:
+      'true si se escribieron operaciones después del último snapshot. ' +
+      'Mientras sea true, el TWR y el XIRR van por detrás de portfolioSummary; ' +
+      'ejecuta rebuildPortfolioSnapshots.',
+  })
+  isStale: boolean;
 }

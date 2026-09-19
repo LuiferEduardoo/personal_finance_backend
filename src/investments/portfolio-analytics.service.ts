@@ -414,6 +414,7 @@ export class PortfolioAnalyticsService {
     const snapshots = await this.snapshotsService.findSeries(userId, from, to);
     return {
       baseCurrency,
+      isStale: await this.snapshotsService.isStale(userId),
       estimatedDays: snapshots.filter((snapshot) => snapshot.isEstimated)
         .length,
       points: snapshots.map((snapshot) => ({
@@ -445,6 +446,7 @@ export class PortfolioAnalyticsService {
   ): Promise<PortfolioReturns> {
     const baseCurrency = await this.baseCurrency(userId);
     const snapshots = await this.snapshotsService.findSeries(userId, from, to);
+    const isStale = await this.snapshotsService.isStale(userId);
 
     if (snapshots.length === 0) {
       const summary = await this.summary(userId, to);
@@ -463,6 +465,7 @@ export class PortfolioAnalyticsService {
         realizedPnl: summary.realizedPnl,
         unrealizedPnl: summary.unrealizedPnl,
         dividends: summary.dividends,
+        isStale,
       };
     }
 
@@ -505,6 +508,7 @@ export class PortfolioAnalyticsService {
       realizedPnl: last.realizedPnlToDateBase,
       unrealizedPnl: last.unrealizedPnlBase,
       dividends: last.dividendsToDateBase,
+      isStale,
     };
   }
 

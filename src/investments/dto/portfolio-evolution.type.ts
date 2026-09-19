@@ -54,4 +54,11 @@ export class PortfolioEvolution {
     description: 'Días cuya valoración usó precios o tasas arrastrados',
   })
   estimatedDays: number;
+
+  @Field({
+    description:
+      'true si se escribieron operaciones después de construir esta serie. ' +
+      'Ejecuta rebuildPortfolioSnapshots para ponerla al día.',
+  })
+  isStale: boolean;
 }

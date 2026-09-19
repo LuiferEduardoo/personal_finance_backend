@@ -448,6 +448,31 @@ export class SnapshotsService {
     return toDateString(row?.first_on);
   }
 
+  // ¿La serie de snapshots va por detrás del libro?
+  //
+  // Hace falta de verdad: portfolioSummary lee posiciones y precios EN VIVO,
+  // mientras que la evolución y las rentabilidades leen los snapshots
+  // persistidos. Si se escriben operaciones y no se reconstruye, los dos
+  // números discrepan sin avisar; medido en pruebas, la diferencia llegó a ser
+  // de 20 puntos de TWR. Mejor decirlo que dejar que el usuario lo descubra.
+  async isStale(userId: string): Promise<boolean> {
+    const [row] = await this.snapshotsRepository.query(
+      `
+        SELECT
+          (SELECT MAX("updated_at") FROM "investment_transactions" WHERE "user_id" = $1) AS last_write,
+          (SELECT MAX("created_at") FROM "portfolio_snapshots" WHERE "user_id" = $1) AS last_build
+      `,
+      [userId],
+    );
+    if (!row?.last_write) {
+      return false;
+    }
+    if (!row.last_build) {
+      return true;
+    }
+    return new Date(row.last_write) > new Date(row.last_build);
+  }
+
   // --- lectura ---
 
   findSeries(
