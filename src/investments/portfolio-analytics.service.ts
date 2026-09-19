@@ -107,7 +107,15 @@ export class PortfolioAnalyticsService {
     fx: Map<string, number>,
   ): PositionView {
     const price = prices.get(row.instrumentId) ?? null;
-    const rate = fx.get(row.currency) ?? 1;
+
+    // La tasa se toma de la moneda del INSTRUMENTO, no de la del lote.
+    //
+    // instrument_prices guarda el cierre en la moneda en la que cotiza el
+    // instrumento. Convertirlo con la tasa del lote es un error cuando ambas
+    // difieren: un bitcoin comprado con pesos tiene el lote en COP y el precio
+    // en USD, y aplicarle la tasa COP/USD al precio lo dividía por ~3900. El
+    // resultado era una pérdida no realizada del 99,97%.
+    const rate = fx.get(row.instrument?.currency ?? row.currency) ?? 1;
 
     // sin precio NO se valora en 0: se deja en null y se cuenta aparte.
     // Un número ausente es honesto; un cero es una mentira.

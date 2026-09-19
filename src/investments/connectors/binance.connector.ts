@@ -38,6 +38,9 @@ const CONVERT_WINDOW_DAYS = 30;
 const FIAT_WINDOW_DAYS = 90;
 // cuánto histórico recorrer cuando todavía no hay cursor
 const DEFAULT_LOOKBACK_DAYS = 730;
+// Las órdenes fiat se recorren menos atrás: son DOS llamadas por tramo (compra
+// y venta) y el endpoint tiene un tope propio más estrecho.
+const FIAT_LOOKBACK_DAYS = 365;
 // tope de tramos por sincronización, para no agotar la cuota de peso
 const MAX_WINDOWS = 40;
 
@@ -322,7 +325,9 @@ export class BinanceConnector implements BrokerConnector {
     const day = 86_400_000;
     const covered = cursor.coveredFrom?.[source];
     if (!covered) {
-      return Date.now() - DEFAULT_LOOKBACK_DAYS * day;
+      const lookback =
+        source === 'fiat' ? FIAT_LOOKBACK_DAYS : DEFAULT_LOOKBACK_DAYS;
+      return Date.now() - lookback * day;
     }
     return covered - 7 * day;
   }
@@ -355,9 +360,11 @@ export class BinanceConnector implements BrokerConnector {
           creds,
           '/sapi/v1/convert/tradeFlow',
           { startTime: String(start), endTime: String(end), limit: '100' },
-          // los endpoints de /sapi tienen su propio tope, más estrecho que el
-          // del libro de órdenes: se les cobra más peso para espaciarlos
-          30,
+          // Se espacian más que el libro de órdenes, pero sin exagerar: con un
+          // peso muy alto el limitador esperaba hasta un minuto por llamada y
+          // la sincronización completa tardaba veinte. Ante un 429 el respaldo
+          // real es el retroceso exponencial, no ahogar el limitador.
+          20,
         );
         for (const trade of page.list ?? []) {
           if (trade.orderStatus !== 'SUCCESS') {
@@ -511,8 +518,8 @@ export class BinanceConnector implements BrokerConnector {
               endTime: String(end),
               rows: '100',
             },
-            // fiat/orders es de los más caros: 90 de peso por llamada
-            90,
+            // fiat/orders es de los más caros del /sapi
+            25,
           );
           for (const order of page.data ?? []) {
             // los intentos fallidos o expirados no son movimientos reales

@@ -331,11 +331,31 @@ export class InvestmentSyncService {
       return null;
     }
 
+    // Una operación sobre un instrumento se registra EN LA MONEDA DEL
+    // INSTRUMENTO, convirtiendo con la tasa del día si hace falta.
+    //
+    // Comprar bitcoin con pesos dejaba el lote en COP mientras el precio de
+    // mercado viene en USD: la base de costo y el valor de mercado quedaban en
+    // monedas distintas y el coste medio salía en cientos de millones. Los
+    // movimientos de EFECTIVO no se tocan: un depósito en pesos es un depósito
+    // en pesos.
+    const convertido = await this.toInstrumentCurrency(
+      { amount, price: row.price, fee: row.fee, tax: row.tax, currency },
+      instrumentId,
+      row.occurredOn,
+    );
+
     const fxRate = await this.fxService.rateForWrite(
-      currency,
+      convertido.currency,
       baseCurrency,
       row.occurredOn,
     );
+
+    const notas = convertido.converted
+      ? [row.notes, `Original: ${amount} ${currency}`]
+          .filter(Boolean)
+          .join(' | ')
+      : row.notes;
 
     return {
       userId,
@@ -346,18 +366,18 @@ export class InvestmentSyncService {
       occurredOn: row.occurredOn,
       occurredAt: row.occurredAt,
       quantity,
-      price: row.price === null ? null : Math.abs(row.price),
-      amount,
-      fee: roundMoney(Math.abs(row.fee)),
-      tax: roundMoney(Math.abs(row.tax)),
-      currency,
+      price: convertido.price,
+      amount: convertido.amount,
+      fee: convertido.fee,
+      tax: convertido.tax,
+      currency: convertido.currency,
       fxRate,
       fxRateSource:
         fxRate === 1 ? FxRateSource.ASSUMED_ONE : FxRateSource.TWELVE_DATA,
       settlementCurrency: row.settlementCurrency,
       settlementAmount: row.settlementAmount,
       externalId: row.externalId,
-      notes: row.notes,
+      notes: notas,
       occurrenceIndex: 0,
       raw: row.raw,
       dedupeHash: dedupeHash({
@@ -367,10 +387,74 @@ export class InvestmentSyncService {
         occurredOn: row.occurredOn,
         instrumentId,
         quantity,
-        amount,
-        currency,
+        // con los valores YA convertidos: si no, resincronizar tras cambiar la
+        // conversión duplicaría todo
+        amount: convertido.amount,
+        currency: convertido.currency,
         occurrenceIndex: 0,
       }),
+    };
+  }
+
+  // Convierte los importes de una operación a la moneda en la que cotiza su
+  // instrumento. Sin instrumento (efectivo) devuelve los valores tal cual.
+  private async toInstrumentCurrency(
+    values: {
+      amount: number;
+      price: number | null;
+      fee: number;
+      tax: number;
+      currency: string;
+    },
+    instrumentId: string | null,
+    occurredOn: string,
+  ): Promise<{
+    amount: number;
+    price: number | null;
+    fee: number;
+    tax: number;
+    currency: string;
+    converted: boolean;
+  }> {
+    const sinConvertir = {
+      amount: roundMoney(values.amount),
+      price: values.price === null ? null : Math.abs(values.price),
+      fee: roundMoney(Math.abs(values.fee)),
+      tax: roundMoney(Math.abs(values.tax)),
+      currency: values.currency,
+      converted: false,
+    };
+    if (!instrumentId) {
+      return sinConvertir;
+    }
+
+    const instrument = await this.instrumentsService.findOne(instrumentId);
+    const destino = instrument.currency;
+    if (!destino || destino === values.currency) {
+      return sinConvertir;
+    }
+
+    const rate = await this.fxService.rateForWrite(
+      values.currency,
+      destino,
+      occurredOn,
+    );
+    // sin tasa utilizable se deja la moneda original: inventar una conversión
+    // sería peor que dejar el dato como vino
+    if (!rate || rate === 1) {
+      this.logger.warn(
+        `Sin tasa ${values.currency}/${destino} el ${occurredOn}; la operación se deja en ${values.currency}`,
+      );
+      return sinConvertir;
+    }
+
+    return {
+      amount: roundMoney(Math.abs(values.amount) * rate),
+      price: values.price === null ? null : Math.abs(values.price) * rate,
+      fee: roundMoney(Math.abs(values.fee) * rate),
+      tax: roundMoney(Math.abs(values.tax) * rate),
+      currency: destino,
+      converted: true,
     };
   }
 
