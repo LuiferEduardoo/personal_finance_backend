@@ -1,4 +1,5 @@
 import { genericProfile } from './profiles/generic.profile';
+import { hapiPortfolioProfile } from './profiles/hapi-portfolio.profile';
 import { ibkrFlexCsvProfile } from './profiles/ibkr-flex-csv.profile';
 import { xtbStatementProfile } from './profiles/xtb-statement.profile';
 import { parseDate, parseNumber } from './spreadsheet-parser.service';
@@ -7,6 +8,13 @@ describe('parseNumber', () => {
   it('lee el formato americano', () => {
     expect(parseNumber('1,234.56', genericProfile)).toBe(1234.56);
     expect(parseNumber('1234.56', genericProfile)).toBe(1234.56);
+  });
+
+  it('lee los importes mixtos de la plantilla de Hapi', () => {
+    expect(parseNumber('1,922.00', hapiPortfolioProfile)).toBe(1922);
+    expect(parseNumber('0.00884', hapiPortfolioProfile)).toBe(0.00884);
+    expect(parseNumber('16.99048', hapiPortfolioProfile)).toBe(16.99048);
+    expect(parseNumber('0.15', hapiPortfolioProfile)).toBe(0.15);
   });
 
   it('lee el formato europeo', () => {
@@ -64,6 +72,10 @@ describe('parseDate', () => {
     expect(
       parseDate('01/09/2026', { ...genericProfile, dateOrder: 'MDY' }),
     ).toBe('2026-01-09');
+  });
+
+  it('interpreta la fecha de la plantilla de Hapi como día/mes/año', () => {
+    expect(parseDate('04/02/2025', hapiPortfolioProfile)).toBe('2025-02-04');
   });
 
   it('acepta puntos y guiones como separador', () => {

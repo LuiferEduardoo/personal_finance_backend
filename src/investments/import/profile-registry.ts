@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { binanceTradeHistoryProfile } from './profiles/binance-trade-history.profile';
 import { etoroStatementProfile } from './profiles/etoro-statement.profile';
 import { genericProfile } from './profiles/generic.profile';
+import { hapiPortfolioProfile } from './profiles/hapi-portfolio.profile';
 import { ibkrFlexCsvProfile } from './profiles/ibkr-flex-csv.profile';
 import {
   CanonicalField,
@@ -29,6 +30,7 @@ export interface ProfileDetection {
 @Injectable()
 export class ProfileRegistry {
   private readonly profiles: ParserProfile[] = [
+    hapiPortfolioProfile,
     etoroStatementProfile,
     ibkrFlexCsvProfile,
     binanceTradeHistoryProfile,

@@ -15,6 +15,20 @@ const HEADERS = {
   ],
   binance: ['Date(UTC)', 'Pair', 'Side', 'Price', 'Executed', 'Amount', 'Fee'],
   xtb: ['ID', 'Type', 'Time', 'Symbol', 'Comment', 'Amount'],
+  hapi: [
+    'Fecha',
+    'Mes',
+    'Broker',
+    'Estado',
+    'Tipo de Inversión',
+    'Activo',
+    'Sector',
+    'Cantidad',
+    'Precio Acción',
+    'Importe',
+    'Comisión',
+    'Importe total',
+  ],
 };
 
 describe('ProfileRegistry: detección', () => {
@@ -41,6 +55,22 @@ describe('ProfileRegistry: detección', () => {
   it('reconoce un statement de XTB', () => {
     const d = registry.detect(HEADERS.xtb);
     expect(d.profile.id).toBe('xtb-statement');
+  });
+
+  it('reconoce la plantilla de cartera de Hapi en español', () => {
+    const d = registry.detect(HEADERS.hapi);
+    expect(d.profile.id).toBe('hapi-portfolio-es');
+    expect(d.confidence).toBe(1);
+    expect(d.mapping).toMatchObject({
+      occurredOn: 'Fecha',
+      type: 'Estado',
+      symbol: 'Activo',
+      quantity: 'Cantidad',
+      price: 'Precio Acción',
+      amount: 'Importe',
+      fee: 'Comisión',
+      notes: 'Sector',
+    });
   });
 
   it('cae al genérico con cabeceras desconocidas', () => {
