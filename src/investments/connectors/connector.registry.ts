@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { BrokerKind } from '../../common/enums/broker-kind.enum';
 import { BinanceConnector } from './binance.connector';
 import { BrokerConnector } from './broker-connector.interface';
@@ -39,6 +43,37 @@ export class BrokerConnectorRegistry {
 
   supports(broker: BrokerKind): boolean {
     return this.connectors.has(broker);
+  }
+
+  // Valida la FORMA de cada credencial, no solo que esté presente.
+  //
+  // Existe porque los brókers rechazan una credencial mal formada con códigos
+  // opacos: XTB, por ejemplo, responde "EX000 Invalid parameters" si el userId
+  // no es numérico, sin decir por qué. Es mucho mejor explicarlo aquí.
+  validateCredentials(
+    broker: BrokerKind,
+    credentials: Record<string, unknown>,
+  ): void {
+    if (broker === BrokerKind.XTB) {
+      const userId = String(credentials.userId ?? '').trim();
+      if (!/^[0-9]+$/.test(userId)) {
+        throw new BadRequestException(
+          'El userId de XTB es el NÚMERO de cuenta (solo dígitos), no tu correo ' +
+            'electrónico. Lo encuentras en xStation, en Configuración > Detalles ' +
+            'de la cuenta, o en el correo de bienvenida de XTB.',
+        );
+      }
+    }
+    if (broker === BrokerKind.INTERACTIVE_BROKERS) {
+      const queryId = String(credentials.queryId ?? '').trim();
+      if (!/^[0-9]+$/.test(queryId)) {
+        throw new BadRequestException(
+          'El queryId de Interactive Brokers es el número de la Flex Query ' +
+            '(solo dígitos), no su nombre. Lo ves en Account Management > ' +
+            'Reports > Flex Queries.',
+        );
+      }
+    }
   }
 
   // qué credenciales pide cada bróker, para que el cliente sepa qué formulario

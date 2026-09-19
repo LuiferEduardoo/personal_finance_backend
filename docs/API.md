@@ -1075,10 +1075,12 @@ El archivo original se archiva en `import_batches.file_data` para poder re-parse
 | --- | --- | --- | --- |
 | Binance | `apiKey`, `apiSecret` | REST firmado con HMAC-SHA256 | Crea la key en modo **solo lectura** |
 | eToro | `apiKey`, `userKey` | REST | Settings > Trading > API Key Management, permiso **Read**. **Solo 1 año de historial** |
-| Interactive Brokers | `token`, `queryId` | Flex Web Service v3 | Crea una *Activity Flex Query* y un token en Account Management |
-| XTB | `userId`, `password` | WebSocket xAPI (**no oficial**) | Ver el aviso de abajo |
+| Interactive Brokers | `token`, `queryId` | Flex Web Service v3 | Crea una *Activity Flex Query* y un token en Account Management. El `queryId` es el **número** de la query, no su nombre |
+| XTB | `userId`, `password` | WebSocket xAPI (**no oficial**) | `userId` es el **número de cuenta**, no tu correo. Ver el aviso de abajo |
 
 Se usa el **Flex Web Service** de IBKR y no la Client Portal API porque esta última exige un gateway corriendo en local y un 2FA manual a diario, inviable para un backend desatendido.
+
+> **El `userId` de XTB es el número de cuenta (solo dígitos)**, el mismo que sale en xStation en *Configuración > Detalles de la cuenta* o en el correo de bienvenida. **No es el correo con el que entras a la web.** Si pones el correo, XTB responde `EX000 Invalid parameters` sin explicar nada, así que la validación lo rechaza antes de intentar conectar.
 
 > 🔴 **Aviso sobre XTB**: XTB no tiene API oficial. La vía no oficial se autentica con tu **usuario y contraseña REALES de trading**, no con una API key revocable de solo lectura. Las credenciales se cifran con AES-256-GCM, pero **un volcado de la base de datos más una fuga de `INVESTMENTS_ENCRYPTION_KEY` equivale a comprometer tu cuenta de trading entera**. Empieza con credenciales de **demo**. Además, XTB puede cambiar el protocolo sin aviso y sin soporte.
 

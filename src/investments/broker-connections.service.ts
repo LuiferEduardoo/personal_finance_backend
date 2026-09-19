@@ -254,5 +254,7 @@ export class BrokerConnectionsService {
         `Faltan credenciales para ${broker}: ${missing.join(', ')}`,
       );
     }
+    // y además que tengan la FORMA correcta, no solo que estén
+    this.registry.validateCredentials(broker, credentials ?? {});
   }
 }
