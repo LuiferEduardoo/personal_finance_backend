@@ -21,6 +21,32 @@ const SECRET_BYTES = 32;
 
 // evita un UPDATE por petición: solo refresca last_used_at cada minuto
 const LAST_USED_REFRESH_MS = 60_000;
+const ALLOWED_API_SCOPES = new Set<ApiScope>([
+  // Se conserva para que las claves históricas de acceso completo sigan
+  // funcionando. Los guards UserOnly continúan bloqueando credenciales.
+  ApiScope.ALL,
+  ApiScope.EXPENSES_READ,
+  ApiScope.EXPENSES_WRITE,
+  ApiScope.INCOMES_READ,
+  ApiScope.INCOMES_WRITE,
+  ApiScope.CATEGORIES_READ,
+  ApiScope.CATEGORIES_WRITE,
+  ApiScope.ACCOUNTS_READ,
+  ApiScope.ACCOUNTS_WRITE,
+  ApiScope.ARTICLES_READ,
+  ApiScope.ARTICLES_WRITE,
+  ApiScope.PRODUCTS_READ,
+  ApiScope.PRODUCTS_WRITE,
+  ApiScope.INVENTORY_READ,
+  ApiScope.INVENTORY_WRITE,
+  ApiScope.RECURRING_READ,
+  ApiScope.RECURRING_WRITE,
+  ApiScope.INFLATION_READ,
+  ApiScope.INVOICES_WRITE,
+  ApiScope.INVESTMENTS_READ,
+  ApiScope.INVESTMENTS_WRITE,
+  ApiScope.MARKET_DATA_READ,
+]);
 
 @Injectable()
 export class ApiKeysService {
@@ -134,7 +160,7 @@ export class ApiKeysService {
       sub: apiKey.userId,
       email: apiKey.user.email,
       kind: PrincipalKind.API_KEY,
-      scopes: apiKey.scopes,
+      scopes: apiKey.scopes.filter((scope) => ALLOWED_API_SCOPES.has(scope)),
       apiKeyId: apiKey.id,
     };
   }
@@ -145,7 +171,13 @@ export class ApiKeysService {
       throw new BadRequestException('La API key necesita al menos un scope');
     }
     const unique = [...new Set(scopes)];
-    return unique.includes(ApiScope.ALL) ? [ApiScope.ALL] : unique;
+    const invalid = unique.filter((scope) => !ALLOWED_API_SCOPES.has(scope));
+    if (invalid.length) {
+      throw new BadRequestException(
+        `La API key contiene permisos no admitidos: ${invalid.join(', ')}`,
+      );
+    }
+    return unique;
   }
 
   private validateName(name: string): void {
