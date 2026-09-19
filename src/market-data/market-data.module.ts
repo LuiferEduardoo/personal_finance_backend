@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FxRate } from './entities/fx-rate.entity';
 import { InstrumentPrice } from './entities/instrument-price.entity';
+import { InstrumentSymbolAlias } from './entities/instrument-symbol-alias.entity';
 import { Instrument } from './entities/instrument.entity';
 import { MarketDataUsage } from './entities/market-data-usage.entity';
 import { FxService } from './fx.service';
@@ -25,6 +26,7 @@ import { TwelveDataClient } from './twelve-data.client';
       InstrumentPrice,
       FxRate,
       MarketDataUsage,
+      InstrumentSymbolAlias,
     ]),
   ],
   providers: [

@@ -968,11 +968,88 @@ La valoración diaria usa la tasa **de cada fecha**, resolviendo por identidad �
 
 Ambos llevan `try/catch` (un fallo del proveedor no puede tumbar el scheduler), bandera en proceso y **cerrojo consultivo de Postgres**, para que dos instancias del backend no se solapen.
 
+### Importar un statement (CSV / XLSX)
+
+Va por **REST con multer**, no por GraphQL, igual que el análisis de facturas. Todos los endpoints cuelgan de `/investments/import` y exigen el access token.
+
+El flujo es **subir → revisar → confirmar**: analizar NO persiste ninguna operación.
+
+#### 1. `POST /investments/import/analyze`
+
+`multipart/form-data` con el campo `file`, y `?accountId=` opcional (hace falta para poder detectar duplicados). Máximo 10 MB.
+
+Acepta CSV, TSV y XLSX. La validación mira el tipo MIME **y la extensión**, porque un CSV llega muy a menudo como `application/octet-stream`.
+
+Devuelve el borrador:
+
+```jsonc
+{
+  "batchId": "…",
+  "detectedProfile": "ibkr-flex-csv",
+  "detectedBroker": "interactive_brokers",
+  "confidence": 1.0,
+  "columnMapping": { "occurredOn": "TradeDate", "fee": "IBCommission", … },
+  "headers": ["TradeDate", "Symbol", …],
+  "sheetName": "Movimientos",          // solo XLSX
+  "stats": { "totalRows": 7, "importable": 5, "duplicates": 0,
+             "withErrors": 1, "needingInstrument": 1 },
+  "rows": [ { "rowNumber": 1, "type": "buy", "occurredOn": "2025-09-15",
+              "symbol": "AAPL", "instrumentId": "…", "needsInstrument": false,
+              "quantity": 10, "price": 230.5, "amount": 2305, "fee": 1.25,
+              "isDuplicate": false, "errors": [], "raw": { … } } ]
+}
+```
+
+**Los duplicados se marcan aquí, antes de confirmar**, calculando el `dedupeHash` y consultando el índice único. Así ves qué se va a saltar en vez de descubrirlo después. También se marcan los duplicados *dentro del mismo archivo*: entra el primero y los demás quedan señalados.
+
+Una fila con `needsInstrument: true` o con `errors` **no se importa**; el resto del archivo sí.
+
+#### Detección de columnas
+
+Tres capas, en este orden, porque ninguna basta sola:
+
+1. **Perfil por bróker** — `etoro-statement`, `ibkr-flex-csv`, `binance-trade-history`, `xtb-statement`. Acierta el caso habitual exactamente.
+2. **Heurística genérica** — nombres de columna comunes en inglés y español, comparados sin acentos ni mayúsculas. Evita que un bróker desconocido sea un callejón sin salida.
+3. **Corrección del usuario** — `POST /investments/import/remap` con `{ batchId, columnMapping, profileId? }` **re-parsea el archivo archivado** con tu mapeo, sin volver a subirlo. Eso es lo que hace seguro que las dos capas anteriores adivinen.
+
+Cada perfil declara además cómo escribe ese bróker las fechas y los decimales, que no es un detalle menor:
+
+- `01/09/2026` es el **1 de septiembre** en un perfil `DMY` y el **9 de enero** en uno `MDY`.
+- `1.234,56` y `1,234.56` son el mismo número: el separador decimal es el que aparece **más a la derecha**. Adivinarlo mal multiplica el importe por mil.
+- Los negativos entre paréntesis (`(2,305.00)`) y los símbolos de moneda se normalizan.
+
+En XLSX se elige la hoja con más filas (los statements suelen traer una portada) y se busca la cabecera real saltando las filas de título.
+
+#### 2. `POST /investments/import/commit`
+
+```jsonc
+{ "batchId": "…", "accountId": "…", "rows": [ /* opcional: el borrador editado */ ] }
+```
+
+Persiste en una transacción, reconstruye posiciones y pide el histórico de precios de los instrumentos nuevos. Respuesta:
+
+```jsonc
+{ "batchId": "…", "inserted": 5, "skippedDuplicates": 0,
+  "skippedErrors": 2, "alreadyCommitted": false }
+```
+
+**Es idempotente en los dos ejes**: confirmar el mismo lote otra vez devuelve `alreadyCommitted: true` sin insertar nada, y volver a subir el mismo archivo marca todas sus filas como duplicadas (`importable: 0`).
+
+#### Otros endpoints
+
+| Endpoint | Qué hace |
+| --- | --- |
+| `POST /investments/import/discard` | Descarta un lote sin confirmar |
+| `GET /investments/import/batches` | Historial de lotes (nunca devuelve el archivo binario) |
+| `GET /investments/import/batches/:id` | El borrador completo de un lote |
+
+El archivo original se archiva en `import_batches.file_data` para poder re-parsear con otro mapeo, y **se borra al confirmar o descartar**.
+
 ### Alcance actual
 
-Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones), precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica, TWR, XIRR/MWR y comparación contra benchmarks.
+Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones), precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica, TWR, XIRR/MWR, comparación contra benchmarks e importación CSV/XLSX.
 
-Pendiente: importación CSV/XLSX/PDF y conexión automática con eToro, Interactive Brokers, Binance y XTB.
+Pendiente: importación de PDF y conexión automática con eToro, Interactive Brokers, Binance y XTB.
 
 ---
 
@@ -1055,6 +1132,14 @@ query { health }
 ### `FxRateSource`
 
 `MANUAL` · `TWELVE_DATA` · `BROKER` · `ASSUMED_ONE`
+
+### `ImportSource`
+
+`CSV` · `XLSX` · `PDF` · `BROKER_SYNC`
+
+### `ImportStatus`
+
+`PARSED` · `COMMITTED` · `FAILED` · `DISCARDED`
 
 ---
 

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MarketDataModule } from '../market-data/market-data.module';
 import { UsersModule } from '../users/users.module';
 import { BenchmarksService } from './benchmarks.service';
+import { ImportBatch } from './entities/import-batch.entity';
 import { InvestmentAccount } from './entities/investment-account.entity';
 import { InvestmentCashBalance } from './entities/investment-cash-balance.entity';
 import { InvestmentLot } from './entities/investment-lot.entity';
@@ -17,6 +18,10 @@ import { InvestmentTransactionsService } from './investment-transactions.service
 import { PortfolioAnalyticsService } from './portfolio-analytics.service';
 import { PortfolioResolver } from './portfolio.resolver';
 import { PositionsService } from './positions.service';
+import { ImportService } from './import/import.service';
+import { ProfileRegistry } from './import/profile-registry';
+import { SpreadsheetParserService } from './import/spreadsheet-parser.service';
+import { InvestmentsImportController } from './investments-import.controller';
 import { SnapshotsCron } from './snapshots.cron';
 import { SnapshotsService } from './snapshots.service';
 
@@ -30,6 +35,7 @@ import { SnapshotsService } from './snapshots.service';
       InvestmentRealization,
       InvestmentPosition,
       PortfolioSnapshot,
+      ImportBatch,
     ]),
     MarketDataModule,
     UsersModule,
@@ -45,7 +51,11 @@ import { SnapshotsService } from './snapshots.service';
     SnapshotsService,
     SnapshotsCron,
     BenchmarksService,
+    ImportService,
+    ProfileRegistry,
+    SpreadsheetParserService,
   ],
+  controllers: [InvestmentsImportController],
   exports: [
     TypeOrmModule,
     InvestmentAccountsService,
