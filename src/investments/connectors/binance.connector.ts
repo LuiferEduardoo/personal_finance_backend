@@ -26,8 +26,29 @@ const WEIGHT_LIMIT = 400;
 const WEIGHT_WINDOW_MS = 60_000;
 
 // Monedas de cotización por defecto contra las que buscar pares. El usuario
-// puede cambiarlas en las credenciales.
-const DEFAULT_QUOTES = ['USDT', 'BTC', 'BUSD', 'EUR'];
+// puede cambiarlas con "pairs" en las credenciales.
+//
+// Ordenadas de más larga a más corta a propósito: quoteAsset() resuelve por
+// sufijo, y sin ese orden "BTCUSDC" podría casar con "USD" antes que con
+// "USDC" y quedar registrado en la moneda equivocada.
+//
+// FDUSD y USDC son imprescindibles: Binance empujó con fuerza los pares sin
+// comisión contra FDUSD, así que muchas compras de BTC están ahí. BUSD sigue
+// en la lista aunque esté descontinuado, porque el histórico antiguo lo usa.
+const DEFAULT_QUOTES = [
+  'FDUSD',
+  'USDT',
+  'USDC',
+  'BUSD',
+  'TUSD',
+  'DAI',
+  'EUR',
+  'TRY',
+  'BRL',
+  'BTC',
+  'ETH',
+  'BNB',
+];
 
 interface BinanceCursor extends SyncCursor {
   /** último tradeId visto por símbolo */
@@ -95,10 +116,22 @@ export class BinanceConnector implements BrokerConnector {
     const warnings: string[] = [];
     const rows: RawTransaction[] = [];
 
-    const symbols = await this.candidateSymbols(creds);
+    const symbols = await this.candidateSymbols(
+      creds,
+      account.knownSymbols ?? [],
+      Object.keys(previous.fromId ?? {}),
+    );
     if (symbols.length === 0) {
       warnings.push(
-        'No se encontraron pares con saldo; añade "pairs" a las credenciales si operas otros',
+        'No se encontró ningún par que consultar. Si operas contra una moneda ' +
+          'poco habitual, añádela en "pairs" dentro de las credenciales.',
+      );
+    }
+    if (symbols.length >= MAX_CANDIDATE_PAIRS) {
+      warnings.push(
+        `Se alcanzó el tope de ${MAX_CANDIDATE_PAIRS} pares por sincronización. ` +
+          'Limita "pairs" en las credenciales a las monedas con las que operas ' +
+          'de verdad para no dejar operaciones fuera.',
       );
     }
 
@@ -142,30 +175,43 @@ export class BinanceConnector implements BrokerConnector {
     };
   }
 
-  private async candidateSymbols(creds: BrokerCredentials): Promise<string[]> {
+  // Construye el conjunto de pares a consultar.
+  //
+  // NO basta con el saldo actual: si vendiste todo tu BTC, su saldo es cero y
+  // el par BTCUSDT nunca entraría, así que tu histórico no se traería jamás.
+  // Por eso se unen tres fuentes: lo que tienes ahora, lo que YA has operado
+  // según tu libro, y los pares que sincronizaciones anteriores dejaron en el
+  // cursor.
+  private async candidateSymbols(
+    creds: BrokerCredentials,
+    knownSymbols: string[] = [],
+    previousPairs: string[] = [],
+  ): Promise<string[]> {
     const quotes = creds.get<string[]>('pairs') ?? DEFAULT_QUOTES;
     const account = await this.signed<{
       balances: { asset: string; free: string; locked: string }[];
     }>(creds, '/api/v3/account', {});
 
-    const assets = (account.balances ?? [])
-      .filter((balance) => Number(balance.free) + Number(balance.locked) > 0)
-      .map((balance) => balance.asset);
-
-    const valid = await this.exchangeSymbols();
-    const candidates = new Set<string>();
-    for (const asset of assets) {
-      for (const quote of quotes) {
-        if (asset === quote) {
-          continue;
-        }
-        const symbol = `${asset}${quote}`;
-        if (valid.has(symbol)) {
-          candidates.add(symbol);
-        }
+    const assets = new Set<string>(
+      (account.balances ?? [])
+        .filter((balance) => Number(balance.free) + Number(balance.locked) > 0)
+        .map((balance) => balance.asset),
+    );
+    // los símbolos del libro llegan como "BTC/USD" o "BTC": se toma la base
+    for (const known of knownSymbols) {
+      const base = known.split(/[/:]/)[0].trim().toUpperCase();
+      if (base) {
+        assets.add(base);
       }
     }
-    return [...candidates];
+
+    const valid = await this.exchangeSymbols();
+    return buildCandidatePairs({
+      assets,
+      previousPairs,
+      quotes,
+      validSymbols: valid,
+    });
   }
 
   private async exchangeSymbols(): Promise<Set<string>> {
@@ -321,10 +367,7 @@ export class BinanceConnector implements BrokerConnector {
   }
 
   private quoteAsset(symbol: string): string {
-    const quote = DEFAULT_QUOTES.find((candidate) =>
-      symbol.endsWith(candidate),
-    );
-    return quote ?? 'USDT';
+    return resolveQuoteAsset(symbol, DEFAULT_QUOTES);
   }
 
   // --- HTTP ---
@@ -389,3 +432,60 @@ export class BinanceConnector implements BrokerConnector {
     return (await response.json()) as T;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Lógica pura, extraída para poder probarla sin red. Es justo donde estaban
+// los fallos que impedían que llegaran las operaciones de un activo vendido.
+// ---------------------------------------------------------------------------
+
+// Tope de pares por sincronización. Ampliar las monedas de cotización mejora
+// la cobertura pero multiplica las llamadas, y cada /myTrades pesa 10 en la
+// cuota de Binance. Mejor acotarlo y AVISAR que martillear la API en silencio.
+export const MAX_CANDIDATE_PAIRS = 120;
+
+export interface CandidatePairsInput {
+  /** activos con saldo actual, más los que el usuario ya ha operado */
+  assets: Set<string> | string[];
+  /** pares que sincronizaciones anteriores dejaron en el cursor */
+  previousPairs: string[];
+  quotes: string[];
+  /** pares que Binance reconoce */
+  validSymbols: Set<string>;
+}
+
+export function buildCandidatePairs(input: CandidatePairsInput): string[] {
+  const candidates = new Set<string>();
+
+  // Los pares ya vistos entran SIEMPRE, aunque el activo ya no tenga saldo.
+  // Sin esto, vender todo tu BTC hacía desaparecer BTCUSDT del conjunto y su
+  // histórico no volvía a traerse nunca.
+  for (const pair of input.previousPairs) {
+    if (input.validSymbols.has(pair)) {
+      candidates.add(pair);
+    }
+  }
+
+  for (const asset of input.assets) {
+    for (const quote of input.quotes) {
+      if (asset === quote) {
+        continue;
+      }
+      const symbol = `${asset}${quote}`;
+      if (input.validSymbols.has(symbol)) {
+        candidates.add(symbol);
+      }
+    }
+  }
+  // los pares ya vistos van primero: son los que de verdad tienen operaciones
+  return [...candidates].slice(0, MAX_CANDIDATE_PAIRS);
+}
+
+// Sufijo MÁS LARGO que case: "BTCUSDC" tiene que dar USDC, no USD ni USDT.
+export function resolveQuoteAsset(symbol: string, quotes: string[]): string {
+  const quote = [...quotes]
+    .sort((a, b) => b.length - a.length)
+    .find((candidate) => symbol.endsWith(candidate));
+  return quote ?? 'USDT';
+}
+
+export { DEFAULT_QUOTES };

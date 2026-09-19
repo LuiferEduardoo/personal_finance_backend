@@ -35,6 +35,11 @@ const PING_INTERVAL_MS = 8_000;
 const IDLE_CLOSE_MS = 30_000;
 // el protocolo exige ~200 ms entre comandos
 const COMMAND_GAP_MS = 250;
+// Cuánto histórico pedir cuando no hay cursor. getTradesHistory EXIGE `start`
+// (sin él devuelve INVALID_ARGUMENTS, verificado contra el servidor).
+const DEFAULT_HISTORY_DAYS = 730;
+// solape al resincronizar: deduplicar es gratis y atrapa correcciones tardías
+const OVERLAP_DAYS = 7;
 
 interface XtbCursor extends SyncCursor {
   lastSyncedAt?: number;
@@ -111,23 +116,44 @@ export class XtbConnector implements BrokerConnector {
     account: AccountRef,
     cursor: SyncCursor | null,
   ): Promise<FetchResult> {
-    void cursor;
     const currency = account.currency || 'EUR';
+    const previous = (cursor ?? {}) as XtbCursor;
+
+    // Desde cuándo pedir el histórico. Se retrocede una semana sobre el cursor
+    // a propósito: deduplicar no cuesta nada y ese solape atrapa las
+    // operaciones que el bróker liquida tarde.
+    const start = previous.lastSyncedAt
+      ? previous.lastSyncedAt - OVERLAP_DAYS * 86_400_000
+      : Date.now() - DEFAULT_HISTORY_DAYS * 86_400_000;
+
     return this.withSession(creds, async (session) => {
       const warnings: string[] = [];
-      const trades = await session.command<XtbTrade[]>('getTrades', {
-        openedOnly: false,
-      });
-
       const rows: RawTransaction[] = [];
-      for (const trade of trades ?? []) {
+
+      // Hacen falta LOS DOS comandos, y esto es lo que antes estaba mal:
+      // getTrades devuelve únicamente las posiciones ABIERTAS, por mucho que se
+      // le pase openedOnly:false. El histórico de operaciones cerradas vive en
+      // getTradesHistory, que exige `start` en milisegundos desde 1970.
+      const cerradas = await session.command<XtbTrade[]>('getTradesHistory', {
+        start,
+        end: 0,
+      });
+      for (const trade of cerradas ?? []) {
+        rows.push(...this.toTransactions(trade, currency));
+      }
+
+      const abiertas = await session.command<XtbTrade[]>('getTrades', {
+        openedOnly: true,
+      });
+      for (const trade of abiertas ?? []) {
         rows.push(...this.toTransactions(trade, currency));
       }
 
       if (rows.length === 0) {
         warnings.push(
-          'XTB no devolvió operaciones. Su API no oficial solo expone el histórico ' +
-            'reciente; para el resto, importa el statement en CSV o XLSX.',
+          'XTB no devolvió operaciones en el periodo consultado. Su API no oficial ' +
+            'limita cuánto histórico expone; para lo más antiguo, importa el ' +
+            'statement en CSV o XLSX.',
         );
       }
 
@@ -232,7 +258,11 @@ class XtbSession {
   private counter = 0;
   private readonly pending = new Map<
     string,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    {
+      command: string;
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+    }
   >();
 
   constructor(
@@ -300,10 +330,13 @@ class XtbSession {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(customTag);
-        reject(new BadGatewayException(`XTB no respondió a "${name}"`));
+        reject(
+          new BadGatewayException(`XTB no respondió al comando "${name}"`),
+        );
       }, COMMAND_TIMEOUT_MS);
 
       this.pending.set(customTag, {
+        command: name,
         resolve: (value) => {
           clearTimeout(timer);
           resolve(value as T);
@@ -356,9 +389,14 @@ class XtbSession {
     }
     this.pending.delete(tag);
     if (message.status === false) {
+      // el nombre del comando va en el mensaje: sin él, un "Invalid parameters"
+      // no dice nada sobre qué falló
+      const detalle =
+        message.errorDescr ?? message.errorCode ?? 'error desconocido';
       waiter.reject(
         new BadGatewayException(
-          `XTB devolvió un error: ${message.errorDescr ?? message.errorCode ?? 'desconocido'}`,
+          `XTB rechazó el comando "${waiter.command}": ${detalle}` +
+            (message.errorCode ? ` (${message.errorCode})` : ''),
         ),
       );
       return;

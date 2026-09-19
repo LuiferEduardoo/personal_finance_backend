@@ -110,7 +110,11 @@ export class InvestmentSyncService {
         );
         const result = await connector.fetchTransactions(
           credentials,
-          { externalId: brokerAccount.externalId, currency: account.currency },
+          {
+            externalId: brokerAccount.externalId,
+            currency: account.currency,
+            knownSymbols: await this.tradedSymbols(userId, account.id),
+          },
           connection.lastSyncCursor,
         );
 
@@ -167,6 +171,25 @@ export class InvestmentSyncService {
     );
 
     return report;
+  }
+
+  // Activos que el usuario ya ha operado en esta cuenta. Se los pasamos al
+  // conector para que no dependa solo del saldo actual: un activo vendido por
+  // completo tiene saldo cero y aun así su histórico debe poder traerse.
+  private async tradedSymbols(
+    userId: string,
+    accountId: string,
+  ): Promise<string[]> {
+    const rows: { symbol: string }[] = await this.transactionsRepository.query(
+      `
+        SELECT DISTINCT i."symbol"
+        FROM "investment_transactions" t
+        JOIN "instruments" i ON i."id" = t."instrument_id"
+        WHERE t."user_id" = $1 AND t."account_id" = $2
+      `,
+      [userId, accountId],
+    );
+    return rows.map((row) => row.symbol);
   }
 
   private async ensureAccount(

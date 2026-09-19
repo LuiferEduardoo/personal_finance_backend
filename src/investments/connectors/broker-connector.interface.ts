@@ -78,6 +78,15 @@ export interface SyncCursor {
 export interface AccountRef {
   externalId: string | null;
   currency: string;
+  /**
+   * Activos que el usuario YA ha operado en esta cuenta, según su libro.
+   *
+   * Hace falta para Binance: su API exige un símbolo por consulta y no hay
+   * forma de pedir "todas mis operaciones". Si los candidatos se construyen
+   * solo desde el saldo actual, un activo que vendiste entero desaparece del
+   * conjunto y su histórico no se trae nunca.
+   */
+  knownSymbols?: string[];
 }
 
 export interface FetchResult {
