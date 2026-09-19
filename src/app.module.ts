@@ -18,6 +18,7 @@ import { InstallmentsModule } from './installments/installments.module';
 import { InvestmentsModule } from './investments/investments.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { MarketDataModule } from './market-data/market-data.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
 import { ProductsModule } from './products/products.module';
 import { RecurringExpensesModule } from './recurring-expenses/recurring-expenses.module';
@@ -57,6 +58,7 @@ import { UsersModule } from './users/users.module';
     RecurringExpensesModule,
     InvoicesModule,
     MarketDataModule,
+    NotificationsModule,
     InvestmentsModule,
   ],
   controllers: [AppController],

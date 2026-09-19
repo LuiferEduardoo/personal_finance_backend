@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { httpRateLimit } from './common/rate-limit/http-rate-limit.middleware';
 
 // orígenes del frontend permitidos; se pueden sobrescribir con CORS_ORIGINS
 // (lista separada por comas) o abrir del todo con CORS_ORIGINS=*
@@ -18,6 +19,7 @@ function corsOrigin(): string[] | boolean {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use(httpRateLimit(Number(process.env.RATE_LIMIT_PER_MINUTE ?? 120)));
   app.enableCors({
     origin: corsOrigin(),
     credentials: true,

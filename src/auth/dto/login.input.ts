@@ -7,4 +7,7 @@ export class LoginInput {
 
   @Field()
   password: string;
+
+  @Field({ nullable: true, description: 'Código TOTP o recibido por correo' })
+  twoFactorCode?: string;
 }

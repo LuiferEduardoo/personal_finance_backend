@@ -153,6 +153,9 @@ export class PaymentMethod {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  @Column({ name: 'last_payment_reminder_on', type: 'date', nullable: true })
+  lastPaymentReminderOn: string | null;
+
   @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

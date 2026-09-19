@@ -6,6 +6,12 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthPayload } from './dto/auth-payload';
 import { LoginInput } from './dto/login.input';
 import { RegisterInput } from './dto/register.input';
+import {
+  ChangePasswordInput,
+  ResetPasswordInput,
+  TwoFactorSetup,
+} from './dto/security.input';
+import { TwoFactorMethod } from './entities/authentication.entity';
 import { GqlAuthGuard } from './guards/gql-auth.guard';
 
 @Resolver()
@@ -20,6 +26,53 @@ export class AuthResolver {
   @Mutation(() => AuthPayload)
   login(@Args('input') input: LoginInput): Promise<AuthPayload> {
     return this.authService.login(input);
+  }
+
+  @Mutation(() => TwoFactorSetup)
+  @UseGuards(GqlAuthGuard)
+  beginTwoFactorSetup(
+    @CurrentUser() user: JwtPayload,
+    @Args('method', { type: () => TwoFactorMethod }) method: TwoFactorMethod,
+  ): Promise<TwoFactorSetup> {
+    return this.authService.beginTwoFactor(user.sub, method);
+  }
+
+  @Mutation(() => Boolean)
+  @UseGuards(GqlAuthGuard)
+  confirmTwoFactorSetup(
+    @CurrentUser() user: JwtPayload,
+    @Args('method', { type: () => TwoFactorMethod }) method: TwoFactorMethod,
+    @Args('code') code: string,
+  ): Promise<boolean> {
+    return this.authService.confirmTwoFactor(user.sub, method, code);
+  }
+
+  @Mutation(() => Boolean)
+  @UseGuards(GqlAuthGuard)
+  disableTwoFactor(
+    @CurrentUser() user: JwtPayload,
+    @Args('code') code: string,
+  ) {
+    return this.authService.disableTwoFactor(user.sub, code);
+  }
+
+  @Mutation(() => Boolean)
+  @UseGuards(GqlAuthGuard)
+  changePassword(
+    @CurrentUser() user: JwtPayload,
+    @Args('input') input: ChangePasswordInput,
+  ) {
+    return this.authService.changePassword(user.sub, input);
+  }
+
+  @Mutation(() => Boolean)
+  requestPasswordReset(@Args('email') email: string) {
+    return this.authService.requestPasswordReset(email);
+  }
+
+  @Mutation(() => Boolean)
+  resetPassword(@Args('input') input: ResetPasswordInput) {
+    return this.authService.resetPassword(input);
   }
 
   @Mutation(() => AuthPayload, {

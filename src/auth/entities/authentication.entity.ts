@@ -16,6 +16,13 @@ export enum AuthProvider {
   GOOGLE = 'google',
 }
 
+export enum TwoFactorMethod {
+  TOTP = 'totp',
+  EMAIL = 'email',
+}
+
+registerEnumType(TwoFactorMethod, { name: 'TwoFactorMethod' });
+
 registerEnumType(AuthProvider, { name: 'AuthProvider' });
 
 @ObjectType()
@@ -52,6 +59,65 @@ export class Authentication {
   @Field()
   @Column({ name: 'email_verified', default: false })
   emailVerified: boolean;
+
+  @Field(() => TwoFactorMethod, { nullable: true })
+  @Column({
+    name: 'two_factor_method',
+    type: 'enum',
+    enum: TwoFactorMethod,
+    nullable: true,
+  })
+  twoFactorMethod: TwoFactorMethod | null;
+
+  @Column({
+    name: 'totp_secret_encrypted',
+    type: 'text',
+    nullable: true,
+    select: false,
+  })
+  totpSecretEncrypted: string | null;
+
+  @Column({
+    name: 'pending_totp_secret_encrypted',
+    type: 'text',
+    nullable: true,
+    select: false,
+  })
+  pendingTotpSecretEncrypted: string | null;
+
+  @Column({
+    name: 'verification_code_hash',
+    type: 'char',
+    length: 64,
+    nullable: true,
+    select: false,
+  })
+  verificationCodeHash: string | null;
+
+  @Column({
+    name: 'verification_code_expires_at',
+    type: 'timestamptz',
+    nullable: true,
+    select: false,
+  })
+  verificationCodeExpiresAt: Date | null;
+
+  @Column({
+    name: 'password_reset_hash',
+    type: 'char',
+    length: 64,
+    nullable: true,
+    select: false,
+  })
+  passwordResetHash: string | null;
+
+  @Column({
+    name: 'password_reset_expires_at',
+    type: 'timestamptz',
+    nullable: true,
+    select: false,
+  })
+  passwordResetExpiresAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

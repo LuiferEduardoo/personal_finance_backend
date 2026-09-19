@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersModule } from '../users/users.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthResolver } from './auth.resolver';
 import { AuthService } from './auth.service';
 import { GqlAuthGuard } from './guards/gql-auth.guard';
@@ -14,6 +15,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
   imports: [
     TypeOrmModule.forFeature([Authentication, RefreshToken]),
     UsersModule,
+    NotificationsModule,
     JwtModule.registerAsync({
       global: true,
       inject: [ConfigService],
