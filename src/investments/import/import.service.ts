@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { assertCurrency } from '../../common/currency';
+import { FxService } from '../../market-data/fx.service';
 import {
   INSTRUMENT_REQUIRED_TYPES,
   InvestmentTransactionType,
@@ -26,9 +27,13 @@ import {
   ImportSource,
   ImportStatus,
 } from '../entities/import-batch.entity';
-import { InvestmentTransaction } from '../entities/investment-transaction.entity';
+import {
+  FxRateSource,
+  InvestmentTransaction,
+} from '../entities/investment-transaction.entity';
 import { InvestmentAccountsService } from '../investment-accounts.service';
 import { PositionsService } from '../positions.service';
+import { User } from '../../users/entities/user.entity';
 import { PdfStatementService } from './pdf-statement.service';
 import { ProfileRegistry } from './profile-registry';
 import { ParserProfile, normalizeHeader } from './profiles/profile.types';
@@ -51,6 +56,8 @@ export class ImportService {
     private readonly batchesRepository: Repository<ImportBatch>,
     @InjectRepository(InvestmentTransaction)
     private readonly transactionsRepository: Repository<InvestmentTransaction>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
     private readonly parser: SpreadsheetParserService,
     private readonly registry: ProfileRegistry,
     private readonly pdfService: PdfStatementService,
@@ -58,6 +65,7 @@ export class ImportService {
     private readonly accountsService: InvestmentAccountsService,
     private readonly positionsService: PositionsService,
     private readonly pricesService: PricesService,
+    private readonly fxService: FxService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -295,9 +303,13 @@ export class ImportService {
 
     let inserted = 0;
     if (importable.length > 0) {
-      const values = importable.map((row) =>
-        this.toEntity(userId, accountId, batch.id, row),
-      );
+      const baseCurrency = await this.baseCurrency(userId);
+      const values: Partial<InvestmentTransaction>[] = [];
+      for (const row of importable) {
+        values.push(
+          await this.toEntity(userId, accountId, batch.id, row, baseCurrency),
+        );
+      }
       await this.dataSource.transaction(async (manager) => {
         // orIgnore + el índice único de deduplicación: si dos filas del mismo
         // archivo colisionan, la base las resuelve sin carrera.
@@ -636,14 +648,29 @@ export class ImportService {
     };
   }
 
-  private toEntity(
+  private async baseCurrency(userId: string): Promise<string> {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+      select: { id: true, baseCurrency: true },
+    });
+    return user?.baseCurrency ?? 'USD';
+  }
+
+  private async toEntity(
     userId: string,
     accountId: string,
     batchId: string,
     row: InvestmentTransactionDraft,
-  ): Partial<InvestmentTransaction> {
+    baseCurrency: string,
+  ): Promise<Partial<InvestmentTransaction>> {
     const currency = row.currency ?? 'USD';
     const amount = roundMoney(row.amount ?? 0);
+    const fx = await resolveImportedFx(
+      currency,
+      baseCurrency,
+      row.occurredOn!,
+      (from, to, date) => this.fxService.rateForWrite(from, to, date),
+    );
     return {
       userId,
       accountId,
@@ -656,6 +683,7 @@ export class ImportService {
       fee: roundMoney(row.fee),
       tax: roundMoney(row.tax),
       currency,
+      ...fx,
       notes: row.notes,
       externalId: row.externalId,
       importBatchId: batchId,
@@ -674,4 +702,22 @@ export class ImportService {
       }),
     };
   }
+}
+
+export async function resolveImportedFx(
+  currency: string,
+  baseCurrency: string,
+  occurredOn: string,
+  rateForWrite: (from: string, to: string, date: string) => Promise<number>,
+): Promise<Pick<InvestmentTransaction, 'fxRate' | 'fxRateSource'>> {
+  if (currency === baseCurrency) {
+    return { fxRate: 1, fxRateSource: FxRateSource.ASSUMED_ONE };
+  }
+
+  const fxRate = await rateForWrite(currency, baseCurrency, occurredOn);
+  return {
+    fxRate,
+    fxRateSource:
+      fxRate === 1 ? FxRateSource.ASSUMED_ONE : FxRateSource.TWELVE_DATA,
+  };
 }

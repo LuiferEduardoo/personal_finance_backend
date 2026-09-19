@@ -22,6 +22,7 @@ import {
 } from './dto/portfolio.type';
 import { PortfolioAnalyticsService } from './portfolio-analytics.service';
 import { SnapshotsService } from './snapshots.service';
+import { InvestmentTransactionsService } from './investment-transactions.service';
 
 @Resolver(() => PortfolioSummary)
 @UseGuards(GqlAuthGuard)
@@ -31,6 +32,7 @@ export class PortfolioResolver {
     private readonly snapshotsService: SnapshotsService,
     private readonly benchmarksService: BenchmarksService,
     private readonly pricesService: PricesService,
+    private readonly transactionsService: InvestmentTransactionsService,
   ) {}
 
   @Query(() => [PositionView], {
@@ -138,6 +140,8 @@ export class PortfolioResolver {
     const creditsBefore = await this.pricesService.remainingCredits();
     const prices = await this.pricesService.refreshPrices(user.sub);
     const fxRates = await this.snapshotsService.ensureFxRates(user.sub);
+    const repairedTransactions =
+      await this.transactionsService.resolveMissingFxRates(user.sub);
     // los benchmarks tienen que cubrir el mismo rango que la cartera, o la
     // comparación sale truncada
     const firstDate = await this.snapshotsService.firstActivityDate(user.sub);
@@ -156,6 +160,7 @@ export class PortfolioResolver {
       `${prices.refreshed} barras`,
       `${prices.backfilled} backfills`,
       `${fxRates} tasas de cambio`,
+      `${repairedTransactions} operaciones corregidas`,
       `${benchmarkBars} barras de benchmark`,
       `${creditsUsed} créditos`,
       `${snapshots.days} días de snapshot`,
