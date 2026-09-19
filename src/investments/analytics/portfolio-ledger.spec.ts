@@ -1,5 +1,10 @@
 import { InvestmentTransactionType } from '../../common/enums/investment-transaction-type.enum';
-import { LedgerError, LedgerEvent, replay } from './portfolio-ledger';
+import {
+  LedgerError,
+  LedgerEvent,
+  replay,
+  replayDaily,
+} from './portfolio-ledger';
 
 const ACCOUNT = 'acc-1';
 const OTHER_ACCOUNT = 'acc-2';
@@ -554,5 +559,114 @@ describe('portfolio-ledger: determinismo', () => {
     expect(position(state)!.costBasis).toBe(1600);
     expect(position(state)!.averageCost).toBe(200);
     expect(position(state)!.realizedPnlToDateBase).toBe(1600);
+  });
+});
+
+describe('portfolio-ledger: checkpoints diarios', () => {
+  it('emite una foto por cada fecha con actividad, no por día natural', () => {
+    const { checkpoints } = replayDaily([
+      event({
+        type: InvestmentTransactionType.DEPOSIT,
+        instrumentId: null,
+        occurredOn: '2026-01-01',
+        amount: 5000,
+      }),
+      buy(10, 150, '2026-01-02'),
+      buy(10, 170, '2026-02-01'),
+      sell(15, 200, '2026-03-01'),
+    ]);
+
+    expect(checkpoints.map((c) => c.date)).toEqual([
+      '2026-01-01',
+      '2026-01-02',
+      '2026-02-01',
+      '2026-03-01',
+    ]);
+  });
+
+  it('cada foto acumula el estado hasta esa fecha', () => {
+    const { checkpoints } = replayDaily([
+      event({
+        type: InvestmentTransactionType.DEPOSIT,
+        instrumentId: null,
+        occurredOn: '2026-01-01',
+        amount: 5000,
+      }),
+      buy(10, 150, '2026-01-02'),
+      buy(10, 170, '2026-02-01'),
+      sell(15, 200, '2026-03-01'),
+    ]);
+
+    const [dia1, dia2, dia3, dia4] = checkpoints;
+    expect(dia1.contributionsBase).toBe(5000);
+    expect(dia1.positions).toHaveLength(0);
+
+    expect(dia2.positions[0].quantity).toBe(10);
+    expect(dia2.realizedToDateBase).toBe(0);
+
+    expect(dia3.positions[0].quantity).toBe(20);
+
+    expect(dia4.positions[0].quantity).toBe(5);
+    expect(dia4.realizedToDateBase).toBe(650);
+  });
+
+  it('netFlowBase es el flujo externo de ESE día, no el acumulado', () => {
+    const { checkpoints } = replayDaily([
+      event({
+        type: InvestmentTransactionType.DEPOSIT,
+        instrumentId: null,
+        occurredOn: '2026-01-01',
+        amount: 5000,
+      }),
+      event({
+        type: InvestmentTransactionType.DEPOSIT,
+        instrumentId: null,
+        occurredOn: '2026-02-01',
+        amount: 3000,
+      }),
+      event({
+        type: InvestmentTransactionType.WITHDRAWAL,
+        instrumentId: null,
+        occurredOn: '2026-03-01',
+        amount: 1000,
+      }),
+    ]);
+
+    expect(checkpoints.map((c) => c.netFlowBase)).toEqual([5000, 3000, -1000]);
+    expect(checkpoints.map((c) => c.contributionsBase)).toEqual([
+      5000, 8000, 8000,
+    ]);
+  });
+
+  it('un dividendo NO cuenta como flujo externo del día', () => {
+    const { checkpoints } = replayDaily([
+      buy(10, 100, '2026-01-01'),
+      event({
+        type: InvestmentTransactionType.DIVIDEND,
+        occurredOn: '2026-02-01',
+        amount: 100,
+        tax: 15,
+      }),
+    ]);
+
+    const dividendo = checkpoints[1];
+    expect(dividendo.netFlowBase).toBe(0);
+    expect(dividendo.dividendsToDateBase).toBe(85);
+  });
+
+  it('el estado final coincide con el de replay()', () => {
+    const events = [
+      buy(10, 150, '2026-01-01'),
+      buy(10, 170, '2026-02-01'),
+      sell(15, 200, '2026-03-01'),
+    ];
+    const directo = replay(events);
+    const { state } = replayDaily(events);
+
+    expect(state.positions).toEqual(directo.positions);
+    expect(state.cash).toEqual(directo.cash);
+    expect(state.realizations.map((r) => r.realizedPnl)).toEqual(
+      directo.realizations.map((r) => r.realizedPnl),
+    );
   });
 });

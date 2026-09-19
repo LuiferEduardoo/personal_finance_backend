@@ -1,3 +1,4 @@
+import { AnnualizedStatus } from '../../common/enums/return-status.enum';
 import { round, roundMoney, safeDivide } from './money';
 
 // Rentabilidades derivadas. Lo iterativo y lo que decide "devolver null
@@ -27,11 +28,7 @@ export function percentChange(from: number, to: number): number | null {
   return round(safeDivide(to - from, from) * 100, PERCENT_DP);
 }
 
-export enum AnnualizedStatus {
-  OK = 'ok',
-  PERIOD_TOO_SHORT = 'period_too_short',
-  NO_BASE = 'no_base',
-}
+export { AnnualizedStatus };
 
 export interface Annualized {
   rate: number | null;

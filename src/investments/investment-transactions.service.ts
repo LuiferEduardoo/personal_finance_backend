@@ -13,10 +13,14 @@ import {
   In,
   LessThanOrEqual,
   MoreThanOrEqual,
+  Not,
   QueryFailedError,
   Repository,
 } from 'typeorm';
 import { assertCurrency } from '../common/currency';
+import { FxService } from '../market-data/fx.service';
+import { PricesService } from '../market-data/prices.service';
+import { User } from '../users/entities/user.entity';
 import {
   INSTRUMENT_REQUIRED_TYPES,
   InvestmentTransactionType,
@@ -50,8 +54,12 @@ export class InvestmentTransactionsService {
     private readonly transactionsRepository: Repository<InvestmentTransaction>,
     @InjectRepository(InvestmentLot)
     private readonly lotsRepository: Repository<InvestmentLot>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
     private readonly accountsService: InvestmentAccountsService,
     private readonly positionsService: PositionsService,
+    private readonly pricesService: PricesService,
+    private readonly fxService: FxService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -125,13 +133,21 @@ export class InvestmentTransactionsService {
     return where;
   }
 
+  private async baseCurrency(userId: string): Promise<string> {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+      select: { id: true, baseCurrency: true },
+    });
+    return user?.baseCurrency ?? 'USD';
+  }
+
   // --- escritura ---
 
   async create(
     userId: string,
     input: CreateInvestmentTransactionInput,
   ): Promise<InvestmentTransaction> {
-    const normalized = this.normalize(userId, input);
+    const normalized = await this.normalize(userId, input);
     await this.accountsService.assertOwned(input.accountId, userId);
     await this.accountsService.assertOwned(input.counterpartyAccountId, userId);
 
@@ -145,6 +161,17 @@ export class InvestmentTransactionsService {
         return saved.id;
       },
     );
+
+    // Una posición nueva necesita histórico de precios para poder valorarse y
+    // para que la serie del patrimonio no arranque vacía. NO bloquea esta
+    // mutación: si hay holgura de presupuesto se trae al momento, si no queda
+    // marcado y lo recoge el job nocturno.
+    if (input.instrumentId) {
+      await this.pricesService.requestBackfill(
+        input.instrumentId,
+        input.occurredOn,
+      );
+    }
     return this.findOne(id, userId);
   }
 
@@ -153,7 +180,7 @@ export class InvestmentTransactionsService {
     input: UpdateInvestmentTransactionInput,
   ): Promise<InvestmentTransaction> {
     const existing = await this.findOne(input.id, userId);
-    const merged = this.normalize(userId, {
+    const merged = await this.normalize(userId, {
       accountId: existing.accountId,
       type: existing.type,
       instrumentId: existing.instrumentId ?? undefined,
@@ -238,6 +265,52 @@ export class InvestmentTransactionsService {
     return refreshed ?? lot;
   }
 
+  // Re-resuelve la tasa de cambio de las operaciones que quedaron en 1 por no
+  // haber caché de tasas cuando se escribieron.
+  //
+  // Hace falta de verdad: una operación en USD guardada con tasa 1 mientras la
+  // moneda base es COP deja el flujo externo sin convertir y la cartera sí
+  // convertida, y eso dispara el TWR. Solo toca las filas marcadas como
+  // ASSUMED_ONE: una tasa que el usuario escribió a mano (MANUAL) se respeta.
+  async resolveMissingFxRates(userId: string): Promise<number> {
+    const baseCurrency = await this.baseCurrency(userId);
+    const pending = await this.transactionsRepository.find({
+      where: {
+        userId,
+        fxRateSource: FxRateSource.ASSUMED_ONE,
+        currency: Not(baseCurrency),
+      },
+      order: { occurredOn: 'ASC' },
+    });
+    if (pending.length === 0) {
+      return 0;
+    }
+
+    let updated = 0;
+    const accountIds = new Set<string>();
+    for (const transaction of pending) {
+      const rate = await this.fxService.rateForWrite(
+        transaction.currency,
+        baseCurrency,
+        transaction.occurredOn,
+      );
+      if (rate === 1) {
+        continue;
+      }
+      await this.transactionsRepository.update(
+        { id: transaction.id },
+        { fxRate: rate, fxRateSource: FxRateSource.TWELVE_DATA },
+      );
+      accountIds.add(transaction.accountId);
+      updated += 1;
+    }
+
+    if (accountIds.size > 0) {
+      await this.positionsService.rebuild(userId, [...accountIds]);
+    }
+    return updated;
+  }
+
   // Ejecuta la escritura y la reconstrucción en UNA transacción, para que el
   // libro y sus derivados no puedan quedar descuadrados.
   private async runWrite<T>(
@@ -271,10 +344,10 @@ export class InvestmentTransactionsService {
 
   // Normaliza y valida según el tipo. El @Check de la base es la última red;
   // esto da el mensaje legible antes de llegar allí.
-  private normalize(
+  private async normalize(
     userId: string,
     input: CreateInvestmentTransactionInput,
-  ): Partial<InvestmentTransaction> {
+  ): Promise<Partial<InvestmentTransaction>> {
     const type = input.type;
     const currency = assertCurrency(input.currency ?? 'USD');
     const quantity =
@@ -377,7 +450,33 @@ export class InvestmentTransactionsService {
       );
     }
 
-    const fxRate = input.fxRate ?? 1;
+    // La tasa hacia la moneda base se CONGELA aquí, en el momento de escribir.
+    //
+    // Si el usuario no la da, se resuelve contra el caché de tasas. Dejarla en
+    // 1 por defecto era un bug de verdad: los flujos externos quedaban sin
+    // convertir mientras la cartera sí se valoraba convertida, y el TWR salía
+    // disparado por el factor de la divisa.
+    const baseCurrency = await this.baseCurrency(userId);
+    let fxRate: number;
+    let fxRateSource: FxRateSource;
+    if (input.fxRate !== undefined && input.fxRate !== null) {
+      fxRate = input.fxRate;
+      fxRateSource =
+        currency === baseCurrency
+          ? FxRateSource.ASSUMED_ONE
+          : FxRateSource.MANUAL;
+    } else if (currency === baseCurrency) {
+      fxRate = 1;
+      fxRateSource = FxRateSource.ASSUMED_ONE;
+    } else {
+      fxRate = await this.fxService.rateForWrite(
+        currency,
+        baseCurrency,
+        input.occurredOn,
+      );
+      fxRateSource =
+        fxRate === 1 ? FxRateSource.ASSUMED_ONE : FxRateSource.TWELVE_DATA;
+    }
     if (fxRate <= 0) {
       throw new BadRequestException('La tasa de cambio debe ser mayor que 0');
     }
@@ -398,8 +497,7 @@ export class InvestmentTransactionsService {
       tax,
       currency,
       fxRate,
-      fxRateSource:
-        fxRate === 1 ? FxRateSource.ASSUMED_ONE : FxRateSource.MANUAL,
+      fxRateSource,
       settlementCurrency,
       settlementAmount: input.settlementAmount ?? null,
       splitRatioNumerator: input.splitRatioNumerator ?? null,

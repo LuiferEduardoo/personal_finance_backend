@@ -97,4 +97,15 @@ export class InvestmentTransactionsResolver {
   ): Promise<InvestmentLot> {
     return this.transactionsService.setLotCostBasis(user.sub, input);
   }
+
+  @Mutation(() => Int, {
+    description:
+      'Re-resuelve la tasa de cambio de las operaciones que se guardaron con tasa 1 ' +
+      'por no existir todavía caché de tasas. Respeta las tasas escritas a mano. ' +
+      'Devuelve cuántas se corrigieron.',
+  })
+  @Scopes(ApiScope.INVESTMENTS_WRITE)
+  resolveInvestmentFxRates(@CurrentUser() user: Principal): Promise<number> {
+    return this.transactionsService.resolveMissingFxRates(user.sub);
+  }
 }

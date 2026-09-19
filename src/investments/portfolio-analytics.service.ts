@@ -1,12 +1,22 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InvestmentTransactionType } from '../common/enums/investment-transaction-type.enum';
+import {
+  EXTERNAL_FLOW_TYPES,
+  InvestmentTransactionType,
+} from '../common/enums/investment-transaction-type.enum';
+import { toDateString } from '../common/date';
+import { FxService } from '../market-data/fx.service';
 import { Instrument } from '../market-data/entities/instrument.entity';
 import { InstrumentsService } from '../market-data/instruments.service';
 import { User } from '../users/entities/user.entity';
 import { roundMoney, safeDivide } from './analytics/money';
-import { simpleReturn } from './analytics/returns';
+import { AnnualizedStatus, simpleReturn } from './analytics/returns';
+import { returnBetween, annualizedBetween } from './analytics/twr';
+import { CashFlow, XirrStatus, xirr } from './analytics/xirr';
+import { PortfolioEvolution } from './dto/portfolio-evolution.type';
+import { PortfolioReturns } from './dto/portfolio-returns.type';
+import { SnapshotsService } from './snapshots.service';
 import {
   AllocationDimension,
   InvestmentPositionsFilterInput,
@@ -45,6 +55,8 @@ export class PortfolioAnalyticsService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly instrumentsService: InstrumentsService,
+    private readonly fxService: FxService,
+    private readonly snapshotsService: SnapshotsService,
   ) {}
 
   async baseCurrency(userId: string): Promise<string> {
@@ -82,7 +94,7 @@ export class PortfolioAnalyticsService {
       open.map((row) => row.instrumentId),
       asOf,
     );
-    const fx = await this.fxRates(userId);
+    const fx = await this.fxRates(userId, asOf);
 
     return open
       .map((row) => this.toPositionView(row, prices, fx))
@@ -137,7 +149,7 @@ export class PortfolioAnalyticsService {
     const baseCurrency = await this.baseCurrency(userId);
     const views = await this.positions(userId, { asOf });
     const totals = await this.flowTotals(userId, asOf);
-    const cash = await this.cashInBase(userId);
+    const cash = await this.cashInBase(userId, asOf);
 
     const priced = views.filter((view) => !view.priceMissing);
     const marketValuePositions = priced.reduce(
@@ -314,7 +326,7 @@ export class PortfolioAnalyticsService {
     };
   }
 
-  private async cashInBase(userId: string): Promise<number> {
+  private async cashInBase(userId: string, asOf: string): Promise<number> {
     const rows: { currency: string; amount: string }[] =
       await this.cashRepository.query(
         `
@@ -326,7 +338,7 @@ export class PortfolioAnalyticsService {
         `,
         [userId],
       );
-    const fx = await this.fxRates(userId);
+    const fx = await this.fxRates(userId, asOf);
     return rows.reduce(
       (sum, row) =>
         roundMoney(sum + Number(row.amount) * (fx.get(row.currency) ?? 1)),
@@ -334,15 +346,18 @@ export class PortfolioAnalyticsService {
     );
   }
 
-  // Tasa de cambio por moneda hacia la moneda base del usuario.
+  // Tasa de cambio de cada moneda hacia la moneda base del usuario, a la
+  // fecha de valoración.
   //
-  // FASE 1: se usa la tasa MÁS RECIENTE que el propio usuario registró en una
-  // operación de esa moneda; si no hay ninguna, 1. Es una aproximación
-  // consciente, no un caché de mercado: la fase 2 la sustituye por la tabla
-  // fx_rates alimentada por Twelve Data. Hasta entonces, valorar en la moneda
-  // base una cartera multidivisa arrastra el sesgo de la última tasa que el
-  // usuario escribió.
-  private async fxRates(userId: string): Promise<Map<string, number>> {
+  // Resuelve contra el caché fx_rates (identidad -> directo -> inverso ->
+  // puente por USD). Si una moneda no está cacheada se cae a la última tasa
+  // que el propio usuario escribió en una operación, y en último término a 1;
+  // el resumen lo refleja marcando la valoración como estimada.
+  private async fxRates(
+    userId: string,
+    asOf: string,
+  ): Promise<Map<string, number>> {
+    const baseCurrency = await this.baseCurrency(userId);
     const rows: { currency: string; fx_rate: string }[] =
       await this.transactionsRepository.query(
         `
@@ -353,10 +368,176 @@ export class PortfolioAnalyticsService {
         `,
         [userId],
       );
+
     const map = new Map<string, number>();
     for (const row of rows) {
-      map.set(row.currency, Number(row.fx_rate));
+      const cached = await this.fxService.rateOn(
+        row.currency,
+        baseCurrency,
+        asOf,
+      );
+      map.set(row.currency, cached ? cached.rate : Number(row.fx_rate));
+    }
+
+    // monedas que solo aparecen en saldos de efectivo o en instrumentos
+    const extra: { currency: string }[] = await this.cashRepository.query(
+      `
+        SELECT DISTINCT c."currency"
+        FROM "investment_cash_balances" c
+        JOIN "investment_accounts" a ON a."id" = c."account_id"
+        WHERE a."user_id" = $1
+      `,
+      [userId],
+    );
+    for (const row of extra) {
+      if (map.has(row.currency)) {
+        continue;
+      }
+      const cached = await this.fxService.rateOn(
+        row.currency,
+        baseCurrency,
+        asOf,
+      );
+      map.set(row.currency, cached?.rate ?? 1);
     }
     return map;
+  }
+
+  // --- evolución y rentabilidades ---
+
+  async evolution(
+    userId: string,
+    from?: string,
+    to?: string,
+  ): Promise<PortfolioEvolution> {
+    const baseCurrency = await this.baseCurrency(userId);
+    const snapshots = await this.snapshotsService.findSeries(userId, from, to);
+    return {
+      baseCurrency,
+      estimatedDays: snapshots.filter((snapshot) => snapshot.isEstimated)
+        .length,
+      points: snapshots.map((snapshot) => ({
+        date: snapshot.snapshotOn,
+        totalValue: roundMoney(snapshot.marketValueBase + snapshot.cashBase),
+        marketValue: snapshot.marketValueBase,
+        cash: snapshot.cashBase,
+        costBasis: snapshot.costBasisBase,
+        contributions: snapshot.contributionsToDateBase,
+        netFlow: snapshot.netFlowBase,
+        unrealizedPnl: snapshot.unrealizedPnlBase,
+        realizedPnl: snapshot.realizedPnlToDateBase,
+        dividends: snapshot.dividendsToDateBase,
+        twrIndex: snapshot.twrIndex,
+        isEstimated: snapshot.isEstimated,
+        missingPriceCount: snapshot.missingPriceCount,
+      })),
+    };
+  }
+
+  // Las tres rentabilidades juntas, porque responden preguntas distintas:
+  // la simple dice cuánto ha crecido el dinero, el TWR cómo lo hicieron las
+  // inversiones ignorando el momento de los aportes, y el XIRR cuánto has
+  // ganado tú de verdad teniendo en cuenta ese momento.
+  async returns(
+    userId: string,
+    from?: string,
+    to?: string,
+  ): Promise<PortfolioReturns> {
+    const baseCurrency = await this.baseCurrency(userId);
+    const snapshots = await this.snapshotsService.findSeries(userId, from, to);
+
+    if (snapshots.length === 0) {
+      const summary = await this.summary(userId, to);
+      return {
+        baseCurrency,
+        from: from ?? summary.asOf,
+        to: to ?? summary.asOf,
+        simpleReturn: summary.simpleReturn,
+        twr: null,
+        twrAnnualized: null,
+        twrAnnualizedStatus: AnnualizedStatus.NO_BASE,
+        xirr: null,
+        xirrStatus: XirrStatus.NOT_ENOUGH_FLOWS,
+        endingValue: summary.marketValue,
+        investedCapital: summary.investedCapital,
+        realizedPnl: summary.realizedPnl,
+        unrealizedPnl: summary.unrealizedPnl,
+        dividends: summary.dividends,
+      };
+    }
+
+    const first = snapshots[0];
+    const last = snapshots[snapshots.length - 1];
+    const endingValue = roundMoney(last.marketValueBase + last.cashBase);
+
+    // dos lecturas y una división: para esto se persiste twr_index
+    const twr = returnBetween(first.twrIndex, last.twrIndex);
+    const annualized = annualizedBetween(
+      first.twrIndex,
+      last.twrIndex,
+      first.snapshotOn,
+      last.snapshotOn,
+    );
+
+    const flows = await this.externalFlows(
+      userId,
+      first.snapshotOn,
+      last.snapshotOn,
+    );
+    // el valor de mercado final entra como flujo positivo de cierre
+    flows.push({ date: last.snapshotOn, amount: endingValue });
+    const mwr = xirr(flows);
+
+    const investedCapital = last.contributionsToDateBase;
+
+    return {
+      baseCurrency,
+      from: first.snapshotOn,
+      to: last.snapshotOn,
+      simpleReturn: simpleReturn(endingValue, investedCapital),
+      twr,
+      twrAnnualized: annualized.rate,
+      twrAnnualizedStatus: annualized.status,
+      xirr: mwr.rate,
+      xirrStatus: mwr.status,
+      endingValue,
+      investedCapital,
+      realizedPnl: last.realizedPnlToDateBase,
+      unrealizedPnl: last.unrealizedPnlBase,
+      dividends: last.dividendsToDateBase,
+    };
+  }
+
+  // Flujos EXTERNOS desde la perspectiva del inversor: lo que entra a la
+  // cartera es negativo y lo que sale, positivo. Los dividendos e intereses son
+  // internos y NO aparecen aquí a propósito.
+  private async externalFlows(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<CashFlow[]> {
+    const rows: { occurred_on: string; type: string; amount: string }[] =
+      await this.transactionsRepository.query(
+        `
+          SELECT "occurred_on", "type", SUM("amount" * "fx_rate") AS amount
+          FROM "investment_transactions"
+          WHERE "user_id" = $1
+            AND "occurred_on" BETWEEN $2::date AND $3::date
+            AND "type" = ANY($4)
+          GROUP BY "occurred_on", "type"
+          ORDER BY "occurred_on" ASC
+        `,
+        [userId, from, to, EXTERNAL_FLOW_TYPES],
+      );
+
+    return rows.map((row) => {
+      const inflow =
+        row.type === InvestmentTransactionType.DEPOSIT ||
+        row.type === InvestmentTransactionType.TRANSFER_IN;
+      return {
+        date: toDateString(row.occurred_on)!,
+        amount: inflow ? -Number(row.amount) : Number(row.amount),
+      };
+    });
   }
 }

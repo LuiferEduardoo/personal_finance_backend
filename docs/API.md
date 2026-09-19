@@ -868,17 +868,111 @@ mutation { rebuildInvestmentPositions(accountId: "...") }
 
 Recalcula lotes, realizaciones, posiciones y efectivo desde el libro. Es el equivalente de `recalculateAccountBalance`. **El resultado debe coincidir exactamente con el del camino incremental**; si no coincide, hay un bug.
 
-### Multidivisa — estado actual
+### 🔒 `portfolioEvolution` — evolución del patrimonio
 
-Cada operación guarda su `currency` y el `fxRate` a la moneda base **congelado en el momento de escribir**, para que un informe histórico no se mueva cuando un proveedor revise su serie.
+Serie diaria construida desde el libro y guardada en `portfolio_snapshots`.
 
-> **Limitación conocida**: hoy la valoración de posiciones a moneda base usa la tasa **más reciente que el propio usuario registró** en una operación de esa moneda, o 1 si no hay ninguna. No hay tasas de mercado todavía. Una cartera multidivisa arrastra por tanto el sesgo de la última tasa escrita a mano. Esto se sustituye por la tabla `fx_rates` alimentada por Twelve Data en la siguiente fase.
+```graphql
+query { portfolioEvolution(from: "2026-01-01", to: "2026-09-19") {
+  baseCurrency estimatedDays
+  points { date totalValue marketValue cash costBasis contributions netFlow
+           unrealizedPnl realizedPnl dividends twrIndex isEstimated missingPriceCount }
+} }
+```
+
+`twrIndex` es el índice encadenado con base 100 al inicio de la serie. Se **persiste** porque encadenar no se puede rederivar desde el estado final: con él, la rentabilidad entre dos fechas son dos lecturas y una división.
+
+`isEstimated` marca los días cuya valoración usó un precio o una tasa arrastrados de un día anterior (fines de semana, festivos, huecos del proveedor).
+
+### 🔒 `portfolioReturns` — las tres rentabilidades
+
+```graphql
+query { portfolioReturns(from: "2026-01-01", to: "2026-09-19") {
+  baseCurrency from to
+  simpleReturn
+  twr twrAnnualized twrAnnualizedStatus
+  xirr xirrStatus
+  endingValue investedCapital realizedPnl unrealizedPnl dividends
+} }
+```
+
+Los tres números **no coinciden, y es correcto que no coincidan**: responden preguntas distintas.
+
+| Métrica | Qué responde |
+| --- | --- |
+| `simpleReturn` | ¿Cuánto ha crecido mi dinero en total? |
+| `twr` | ¿Cómo lo hicieron mis inversiones, ignorando *cuándo* metí el dinero? Es lo comparable contra un índice. |
+| `xirr` | ¿Cuánto gané yo de verdad, teniendo en cuenta cuándo metí cada peso? |
+
+El TWR encadena factores diarios `r_d = V_d / (V_{d-1} + F_d)`, donde `F_d` es el flujo **externo** del día. Depósitos, retiros y transferencias de activos son externos; **dividendos, intereses, comisiones e impuestos NO lo son**: el TWR los ve como variación de valor, que es lo que mantiene honesto el número.
+
+`twrAnnualized` viene **`null` por debajo de 365 días**, a propósito, con `twrAnnualizedStatus: PERIOD_TOO_SHORT`. Anualizar un retorno de dos meses es la forma más fácil de publicar un disparate.
+
+`xirr` es `null` cuando no se puede calcular, nunca `NaN`. `xirrStatus` dice por qué: `NOT_ENOUGH_FLOWS`, `NO_SIGN_CHANGE` (solo has aportado y aún no hay valor) o `DID_NOT_CONVERGE`.
+
+### 🔒 `benchmarkComparison` — contra S&P 500, Nasdaq-100 y MSCI World
+
+```graphql
+query { benchmarkComparison(benchmarks: [SP500, NASDAQ100, MSCI_WORLD],
+                            from: "2026-01-01", inBaseCurrency: true) {
+  baseCurrency from to inBaseCurrency warnings
+  series { key label totalReturn annualized annualizedStatus excessReturn basis
+           points { date index } }
+} }
+```
+
+Todas las series se normalizan a **100 en la fecha inicial**. La primera serie es siempre la cartera (`key: "portfolio"`).
+
+Los índices son **ETF como proxy** (`SPY`, `QQQ`, `URTH`), no los índices en crudo: los símbolos de índice no están en la mayoría de planes de Twelve Data, y el nivel del índice excluye dividendos mientras que tu TWR los incluye.
+
+**`inBaseCurrency: true` (por defecto) convierte el índice a tu moneda base antes de normalizar.** No es cosmético: un inversor en COP que compara contra un S&P 500 sin convertir obtiene un número materialmente equivocado, porque el movimiento COP/USD es parte de su rentabilidad real.
+
+> **`basis: PRICE_ONLY`**: el plan actual de Twelve Data **no entrega `adjusted_close`** (verificado contra la API, tampoco con `&adjust=all`), así que el índice se compara **solo por precio, sin dividendos**. La comparación le es por tanto desfavorable al índice. Cuando el dato esté disponible, `basis` pasa a `TOTAL_RETURN` sin cambiar nada más. Los avisos correspondientes llegan en `warnings`.
+
+### 🔒 `refreshInvestmentPrices` — traer precios y tasas
+
+```graphql
+mutation { refreshInvestmentPrices }
+```
+
+Refresca los cierres de lo que tienes en cartera, las tasas de cambio que hagan falta y el histórico de los benchmarks; después reconstruye los snapshots. Devuelve un resumen legible con los créditos consumidos.
+
+`rebuildPortfolioSnapshots` hace **solo** la reconstrucción, sin tocar la red ni gastar créditos.
+
+### Presupuesto del proveedor de precios
+
+El plan Basic de Twelve Data da **8 créditos por minuto y 800 por día**, y todo el diseño gira en torno a eso.
+
+- Una `time_series` con `outputsize=5000` cuesta **1 crédito y trae hasta 5000 barras diarias**: el histórico de un año de un activo cabe en un crédito. Por eso se piden rangos anchos, nunca día a día.
+- Agrupar símbolos separados por comas ahorra **viajes de red, no créditos**: se cobra uno por símbolo igualmente.
+- Solo se refresca a diario lo que alguien tiene en cartera hoy más los benchmarks. Lo demás va bajo demanda.
+- El limitador es **híbrido**: una cadena de promesas espacia las llamadas dentro del proceso, y un contador en la tabla `market_data_usage` sobrevive a reinicios y a una segunda instancia, de modo que ni un reinicio ni un job caído a medias pueden reventar la cuota.
+- Al agotarse el presupuesto, **la lectura nunca falla**: se sirve el caché y el resumen lo declara con `pricesStale`, `missingPriceCount` y `pricesAsOf`. La escritura para y **retoma sola** al día siguiente, porque la lista de trabajo sale del estado (`needs_daily_price`, `backfill_requested_from`) y no de una cola que pueda perderse.
+
+Los límites se leen de `TWELVEDATA_CREDITS_PER_MINUTE` y `TWELVEDATA_CREDITS_PER_DAY`: subir de plan es configuración, no código.
+
+### Multidivisa
+
+Cada operación guarda su `currency` y el `fxRate` a la moneda base **congelado en el momento de escribir**, para que un informe histórico no se mueva cuando el proveedor revise su serie. Si no envías `fxRate`, se resuelve contra el caché `fx_rates`; si lo envías, se respeta y queda marcado como `MANUAL`.
+
+La valoración diaria usa la tasa **de cada fecha**, resolviendo por identidad → directo → inverso → puente por USD, y arrastrando la última conocida cuando falta (el día queda marcado como estimado).
+
+> Si registraste operaciones **antes** de que existiera caché de tasas, quedaron con `fxRate: 1`. Eso deja el flujo externo sin convertir mientras la cartera sí se valora convertida, y dispara el TWR. `resolveInvestmentFxRates` las corrige de una vez: re-resuelve solo las marcadas como `ASSUMED_ONE` y respeta las que escribiste a mano.
+
+### Jobs programados
+
+| Hora | Job | Qué hace |
+| --- | --- | --- |
+| 02:00 | `MarketDataCron` | Recalcula qué instrumentos necesitan precio diario, los refresca y drena los backfills pendientes |
+| 02:30 | `SnapshotsCron` | Refresca tasas de cambio y reconstruye la serie diaria de cada usuario |
+
+Ambos llevan `try/catch` (un fallo del proveedor no puede tumbar el scheduler), bandera en proceso y **cerrojo consultivo de Postgres**, para que dos instancias del backend no se solapen.
 
 ### Alcance actual
 
-Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones) con **precios manuales**.
+Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones), precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica, TWR, XIRR/MWR y comparación contra benchmarks.
 
-Pendiente: precios automáticos y tasas de cambio desde Twelve Data, evolución histórica del patrimonio, TWR, XIRR/MWR, comparación contra benchmarks, importación CSV/XLSX/PDF y conexión con eToro, Interactive Brokers, Binance y XTB.
+Pendiente: importación CSV/XLSX/PDF y conexión automática con eToro, Interactive Brokers, Binance y XTB.
 
 ---
 
@@ -945,6 +1039,22 @@ query { health }
 ### `BenchmarkKey`
 
 `SP500` · `NASDAQ100` · `MSCI_WORLD`
+
+### `BenchmarkBasis`
+
+`TOTAL_RETURN` · `PRICE_ONLY`
+
+### `AnnualizedStatus`
+
+`OK` · `PERIOD_TOO_SHORT` · `NO_BASE`
+
+### `XirrStatus`
+
+`OK` · `NOT_ENOUGH_FLOWS` · `NO_SIGN_CHANGE` · `DID_NOT_CONVERGE`
+
+### `FxRateSource`
+
+`MANUAL` · `TWELVE_DATA` · `BROKER` · `ASSUMED_ONE`
 
 ---
 

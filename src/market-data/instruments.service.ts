@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, ILike, In, Repository } from 'typeorm';
 import { assertCurrency } from '../common/currency';
+import { toDateString } from '../common/date';
 import {
   CreateInstrumentInput,
   SetInstrumentPriceInput,
@@ -200,9 +201,12 @@ export class InstrumentsService {
     if (instrumentIds.length === 0) {
       return result;
     }
-    const rows: { instrument_id: string; close: string; price_on: string }[] =
-      await this.pricesRepository.query(
-        `
+    const rows: {
+      instrument_id: string;
+      close: string;
+      price_on: Date | string;
+    }[] = await this.pricesRepository.query(
+      `
           SELECT DISTINCT ON ("instrument_id")
             "instrument_id", "close", "price_on"
           FROM "instrument_prices"
@@ -210,12 +214,12 @@ export class InstrumentsService {
             AND ($2::date IS NULL OR "price_on" <= $2::date)
           ORDER BY "instrument_id", "price_on" DESC
         `,
-        [instrumentIds, asOf ?? null],
-      );
+      [instrumentIds, asOf ?? null],
+    );
     for (const row of rows) {
       result.set(row.instrument_id, {
         close: Number(row.close),
-        priceOn: row.price_on,
+        priceOn: toDateString(row.price_on)!,
       });
     }
     return result;

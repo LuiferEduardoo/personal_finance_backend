@@ -131,6 +131,21 @@ export interface LedgerState {
   withdrawalsBase: number;
 }
 
+// Estado acumulado del libro al CIERRE de una fecha con actividad. Entre dos
+// fechas con actividad nada cambia salvo los precios, así que basta un
+// checkpoint por fecha con eventos: el llamador interpola los días intermedios.
+export interface LedgerCheckpoint {
+  date: string;
+  positions: LedgerPosition[];
+  cash: LedgerCash[];
+  contributionsBase: number;
+  withdrawalsBase: number;
+  realizedToDateBase: number;
+  dividendsToDateBase: number;
+  /** flujo externo NETO de ESE día, en moneda base */
+  netFlowBase: number;
+}
+
 export class LedgerError extends Error {
   constructor(message: string) {
     super(message);
@@ -195,8 +210,8 @@ interface ReplayContext {
   sequence: number;
 }
 
-export function replay(events: LedgerEvent[]): LedgerState {
-  const ctx: ReplayContext = {
+function createContext(): ReplayContext {
+  return {
     lots: new Map(),
     realizations: [],
     cash: new Map(),
@@ -213,11 +228,60 @@ export function replay(events: LedgerEvent[]): LedgerState {
     realizedByPosition: new Map(),
     sequence: 0,
   };
+}
 
+export function replay(events: LedgerEvent[]): LedgerState {
+  const ctx = createContext();
   for (const event of sortEvents(events)) {
     applyEvent(ctx, event);
   }
+  return toState(ctx);
+}
 
+// Igual que replay(), pero devolviendo además una foto por cada fecha con
+// actividad. Comparte el MISMO reductor: no hay una segunda implementación de
+// las 13 operaciones que pueda desviarse.
+export function replayDaily(events: LedgerEvent[]): {
+  state: LedgerState;
+  checkpoints: LedgerCheckpoint[];
+} {
+  const ctx = createContext();
+  const checkpoints: LedgerCheckpoint[] = [];
+  const sorted = sortEvents(events);
+
+  let index = 0;
+  while (index < sorted.length) {
+    const date = sorted[index].occurredOn;
+    let netFlowBase = 0;
+    const flowsBefore = ctx.flows.length;
+
+    while (index < sorted.length && sorted[index].occurredOn === date) {
+      applyEvent(ctx, sorted[index]);
+      index += 1;
+    }
+    for (let i = flowsBefore; i < ctx.flows.length; i += 1) {
+      netFlowBase = addMoney(netFlowBase, ctx.flows[i].amountBase);
+    }
+
+    checkpoints.push({
+      date,
+      positions: buildPositions(ctx).map((position) => ({ ...position })),
+      cash: [...ctx.cash.values()].map((balance) => ({ ...balance })),
+      contributionsBase: roundMoney(ctx.contributionsBase),
+      withdrawalsBase: roundMoney(ctx.withdrawalsBase),
+      realizedToDateBase: ctx.realizations.reduce(
+        (sum, realization) => addMoney(sum, realization.realizedPnlBase),
+        0,
+      ),
+      dividendsToDateBase: ctx.income.dividendsBase,
+      netFlowBase,
+    });
+  }
+
+  return { state: toState(ctx), checkpoints };
+}
+
+function toState(ctx: ReplayContext): LedgerState {
   return {
     lots: [...ctx.lots.values()].flat(),
     realizations: ctx.realizations,
