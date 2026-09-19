@@ -144,6 +144,7 @@ export class SnapshotsService {
           fx,
           currencies.get(position.instrumentId),
           date,
+          baseCurrency,
         );
         costBasis = addMoney(costBasis, position.costBasisBase);
         const price = this.priceFor(prices, position.instrumentId, date);
@@ -164,7 +165,7 @@ export class SnapshotsService {
 
       let cash = 0;
       for (const balance of current.cash) {
-        const rate = this.rateFor(fx, balance.currency, date);
+        const rate = this.rateFor(fx, balance.currency, date, baseCurrency);
         cash = addMoney(cash, balance.amount * rate.value);
         estimated = estimated || rate.estimated;
       }
@@ -380,15 +381,23 @@ export class SnapshotsService {
     grid: Map<string, Map<string, number>>,
     currency: string | undefined,
     date: string,
+    baseCurrency: string,
   ): { value: number; estimated: boolean } {
     if (!currency) {
       return { value: 1, estimated: false };
     }
+    // La moneda base no está en la rejilla porque no necesita conversión.
+    // Sin esta guarda, una posición en la propia moneda base caía al camino de
+    // "sin tasa cacheada" y marcaba el día como estimado: con eso, TODOS los
+    // días salían estimados y el indicador dejaba de servir para nada.
+    if (currency === baseCurrency) {
+      return { value: 1, estimated: false };
+    }
     const byDate = grid.get(currency);
     if (!byDate) {
-      // sin tasa cacheada se asume 1: el resumen lo refleja marcando el día
-      // como estimado
-      return { value: 1, estimated: grid.size > 0 };
+      // sin tasa cacheada se asume 1 y el día SÍ queda marcado: es una
+      // conversión que no se pudo hacer de verdad
+      return { value: 1, estimated: true };
     }
     const exact = byDate.get(date);
     if (exact !== undefined) {
