@@ -18,16 +18,31 @@ import {
   SyncCursor,
 } from './broker-connector.interface';
 
-// Endpoints del protocolo xAPI clásico (JSON por WebSocket, login con
-// userId/password y correlación por customTag), que es el que habla este
-// conector. VERIFICADO contra el servidor: ws.xtb.com devuelve 404 y ya no
-// sirve; xAPI responde con {status, customTag, errorDescr}.
+// ---------------------------------------------------------------------------
+// ESTADO DE ESTE CONECTOR: el protocolo que habla ya no sirve para cuentas
+// minoristas de XTB. Verificado contra los servidores el 19/09/2026:
 //
-// Existe además un CoreAPI más nuevo en api5reala.x-station.eu con
-// autenticación CAS de tres pasos. No se usa aquí porque es otro protocolo
-// distinto, no otro host.
+//   ws.xtb.com/{real,demo}          -> HTTP 404. XTB retiró su xAPI público.
+//   ws.xapi.pro/{real,demo}         -> habla el xAPI clásico, pero es la
+//                                      plataforma X Open Hub (marca blanca).
+//                                      Una cuenta XTB recibe ahí EX017,
+//                                      "account from a different platform".
+//   api5reala.x-station.eu/v1/...   -> conecta, pero NO entiende el xAPI
+//                                      clásico: rechaza el JSON con un error
+//                                      de parseo. Es otro protocolo (CoreAPI
+//                                      con autenticación CAS de tres pasos).
+//
+// La librería de referencia del CoreAPI expone getBalance, getPositions, buy y
+// sell, pero NO histórico de operaciones, que es justo lo que necesita un libro
+// de cartera. Mientras eso siga así, la importación del statement por CSV o
+// XLSX es la vía que de verdad funciona para XTB.
+// ---------------------------------------------------------------------------
 const REAL_URL = 'wss://ws.xapi.pro/real';
 const DEMO_URL = 'wss://ws.xapi.pro/demo';
+
+// XTB responde esto cuando la cuenta existe pero vive en otra plataforma.
+// No se arregla cambiando la contraseña, así que el mensaje tiene que decirlo.
+const WRONG_PLATFORM_CODE = 'EX017';
 const CONNECT_TIMEOUT_MS = 15_000;
 const COMMAND_TIMEOUT_MS = 20_000;
 // XTB corta la sesión si no hay actividad
@@ -393,6 +408,23 @@ class XtbSession {
       // no dice nada sobre qué falló
       const detalle =
         message.errorDescr ?? message.errorCode ?? 'error desconocido';
+
+      // Un EX017 no es un problema de credenciales: es que el endpoint que
+      // habla este conector no sirve cuentas minoristas de XTB. Decirle al
+      // usuario "revisa tu contraseña" lo manda a perseguir algo que no falla.
+      if (message.errorCode === WRONG_PLATFORM_CODE) {
+        waiter.reject(
+          new BadGatewayException(
+            'XTB no acepta esta cuenta por su API: retiró el acceso público ' +
+              '(ws.xtb.com ya no responde) y el endpoint que queda sirve a otra ' +
+              'plataforma. No es un problema de tus credenciales y no se ' +
+              'arregla cambiándolas. Importa tu statement de XTB en CSV o XLSX ' +
+              'desde /investments/import, que sí funciona.',
+          ),
+        );
+        return;
+      }
+
       waiter.reject(
         new BadGatewayException(
           `XTB rechazó el comando "${waiter.command}": ${detalle}` +
