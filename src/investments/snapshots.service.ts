@@ -179,6 +179,7 @@ export class SnapshotsService {
       rows.push({
         userId,
         accountId: null,
+        baseCurrency,
         snapshotOn: date,
         marketValueBase: marketValue,
         cashBase: cash,
@@ -360,11 +361,20 @@ export class SnapshotsService {
       const rows: { rate_on: string; rate: string }[] =
         await this.snapshotsRepository.query(
           `
-            SELECT "rate_on", "rate"
+            SELECT DISTINCT ON ("rate_on")
+              "rate_on",
+              CASE
+                WHEN "base_currency" = $1 THEN "rate"
+                ELSE 1 / "rate"
+              END AS "rate"
             FROM "fx_rates"
-            WHERE "base_currency" = $1 AND "quote_currency" = $2
+            WHERE (
+                ("base_currency" = $1 AND "quote_currency" = $2)
+                OR
+                ("base_currency" = $2 AND "quote_currency" = $1)
+              )
               AND "rate_on" <= $3::date
-            ORDER BY "rate_on" ASC
+            ORDER BY "rate_on" ASC, ("base_currency" = $1) DESC
           `,
           [currency, baseCurrency, to],
         );
@@ -465,13 +475,15 @@ export class SnapshotsService {
   // números discrepan sin avisar; medido en pruebas, la diferencia llegó a ser
   // de 20 puntos de TWR. Mejor decirlo que dejar que el usuario lo descubra.
   async isStale(userId: string): Promise<boolean> {
+    const baseCurrency = await this.baseCurrency(userId);
     const [row] = await this.snapshotsRepository.query(
       `
         SELECT
           (SELECT MAX("updated_at") FROM "investment_transactions" WHERE "user_id" = $1) AS last_write,
-          (SELECT MAX("created_at") FROM "portfolio_snapshots" WHERE "user_id" = $1) AS last_build
+          (SELECT MAX("created_at") FROM "portfolio_snapshots"
+            WHERE "user_id" = $1 AND "base_currency" = $2) AS last_build
       `,
-      [userId],
+      [userId, baseCurrency],
     );
     if (!row?.last_write) {
       return false;
@@ -484,15 +496,20 @@ export class SnapshotsService {
 
   // --- lectura ---
 
-  findSeries(
+  async findSeries(
     userId: string,
     from?: string,
     to?: string,
   ): Promise<PortfolioSnapshot[]> {
+    const baseCurrency = await this.baseCurrency(userId);
     const query = this.snapshotsRepository
       .createQueryBuilder('snapshot')
       .where('snapshot.user_id = :userId', { userId })
       .andWhere('snapshot.account_id IS NULL')
+      // Un snapshot ya está convertido. Nunca puede etiquetarse con la moneda
+      // base actual si fue construido con otra: esa mezcla produce retornos de
+      // cientos de miles por ciento al cambiar COP <-> USD.
+      .andWhere('snapshot.base_currency = :baseCurrency', { baseCurrency })
       .orderBy('snapshot.snapshot_on', 'ASC');
     if (from) {
       query.andWhere('snapshot.snapshot_on >= :from', { from });

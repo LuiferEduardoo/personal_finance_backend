@@ -50,6 +50,10 @@ export class PortfolioSnapshot {
   @Column({ name: 'account_id', type: 'uuid', nullable: true })
   accountId: string | null;
 
+  @Field({ description: 'Moneda base usada para calcular esta fotografía' })
+  @Column({ name: 'base_currency', type: 'char', length: 3 })
+  baseCurrency: string;
+
   @Field({ description: 'Fecha de la foto (YYYY-MM-DD)' })
   @Column({ name: 'snapshot_on', type: 'date' })
   snapshotOn: string;
