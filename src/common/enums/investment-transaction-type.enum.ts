@@ -1,6 +1,6 @@
 import { registerEnumType } from '@nestjs/graphql';
 
-// Las 13 operaciones que puede registrar una cartera. El efecto de cada una
+// Las 12 operaciones que puede registrar una cartera. El efecto de cada una
 // sobre el efectivo, la cantidad y la base de costo está implementado en un
 // único sitio: src/investments/analytics/portfolio-ledger.ts
 export enum InvestmentTransactionType {

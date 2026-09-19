@@ -35,7 +35,7 @@ registerEnumType(FxRateSource, {
   description: 'Origen de la tasa de cambio guardada en la operación',
 });
 
-// Libro de operaciones de inversión: UNA tabla y UN enum para las 13
+// Libro de operaciones de inversión: UNA tabla y UN enum para las 12
 // operaciones. Toda la analítica que pide la cartera es "reproducir el flujo
 // cronológico de eventos"; una sola tabla ordenada da eso gratis, mientras que
 // partirla en cinco obligaría a un UNION en cada consulta, cada conector y el

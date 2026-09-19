@@ -691,7 +691,7 @@ Registro y seguimiento de la cartera. El backend responde cuánto tengo, cuánto
 
 ### Cómo funciona
 
-El sistema guarda **un libro de operaciones** (`investmentTransactions`) con 13 tipos de movimiento. Todo lo demás —lotes, posiciones, efectivo, P&L— es **derivado**: se reconstruye a partir de ese libro y nunca se edita por separado.
+El sistema guarda **un libro de operaciones** (`investmentTransactions`) con 12 tipos de movimiento. Todo lo demás —lotes, posiciones, efectivo, P&L— es **derivado**: se reconstruye a partir de ese libro y nunca se edita por separado.
 
 **La base de costo es FIFO**, con lotes fiscales persistidos. Es la única disponible y no es configurable: es lo que exige la DIAN y lo que reportan IBKR y eToro. En una venta se consumen los lotes más antiguos primero, y cada lote consumido deja un registro auditable.
 
@@ -1160,7 +1160,7 @@ Un split `4:1` se guarda como `ratioNumerator: 4, ratioDenominator: 1`, es decir
 
 ### Alcance actual
 
-**La feature está completa**: libro de 13 operaciones con FIFO y lotes fiscales, posiciones, efectivo multimoneda, métricas y distribuciones, precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica del patrimonio, TWR, XIRR/MWR, comparación contra benchmarks, importación de CSV, XLSX y PDF, conexión automática con Binance, eToro, Interactive Brokers y XTB, y detección de dividendos y splits pendientes.
+**La feature está completa**: libro de 12 operaciones con FIFO y lotes fiscales, posiciones, efectivo multimoneda, métricas y distribuciones, precios y tasas automáticos desde Twelve Data con presupuesto, evolución histórica del patrimonio, TWR, XIRR/MWR, comparación contra benchmarks, importación de CSV, XLSX y PDF, conexión automática con Binance, eToro, Interactive Brokers y XTB, y detección de dividendos y splits pendientes.
 
 ---
 

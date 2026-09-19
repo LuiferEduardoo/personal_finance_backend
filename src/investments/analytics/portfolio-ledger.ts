@@ -17,7 +17,7 @@ import {
 } from './money';
 
 // ---------------------------------------------------------------------------
-// Este archivo es la ÚNICA implementación del efecto de las 13 operaciones
+// Este archivo es la ÚNICA implementación del efecto de las 12 operaciones
 // sobre el efectivo, la cantidad y la base de costo. Tanto el camino
 // incremental de escritura como el de reconstrucción completa pasan por
 // `replay()`, así que no pueden discrepar.
@@ -240,7 +240,7 @@ export function replay(events: LedgerEvent[]): LedgerState {
 
 // Igual que replay(), pero devolviendo además una foto por cada fecha con
 // actividad. Comparte el MISMO reductor: no hay una segunda implementación de
-// las 13 operaciones que pueda desviarse.
+// las 12 operaciones que pueda desviarse.
 export function replayDaily(events: LedgerEvent[]): {
   state: LedgerState;
   checkpoints: LedgerCheckpoint[];
