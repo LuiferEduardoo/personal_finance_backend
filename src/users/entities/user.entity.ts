@@ -52,6 +52,24 @@ export class User {
   @Column({ name: 'base_currency', type: 'char', length: 3, default: 'COP' })
   baseCurrency: string;
 
+  @Field({ description: 'Moneda preferida para gastos e ingresos' })
+  @Column({
+    name: 'finance_base_currency',
+    type: 'char',
+    length: 3,
+    default: 'COP',
+  })
+  financeBaseCurrency: string;
+
+  @Field({ description: 'Moneda preferida para mostrar las inversiones' })
+  @Column({
+    name: 'investment_base_currency',
+    type: 'char',
+    length: 3,
+    default: 'COP',
+  })
+  investmentBaseCurrency: string;
+
   @Field()
   @Column({ type: 'text', default: 'America/Bogota' })
   timezone: string;

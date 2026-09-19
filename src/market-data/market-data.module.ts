@@ -18,6 +18,8 @@ import {
   USAGE_COUNTER_STORE,
 } from './rate-limiter.service';
 import { TwelveDataClient } from './twelve-data.client';
+import { TrmResolver } from './trm.resolver';
+import { TrmService } from './trm.service';
 
 // Datos de referencia GLOBALES (sin user_id). InvestmentsModule importa este
 // módulo; nunca al revés.
@@ -43,6 +45,8 @@ import { TwelveDataClient } from './twelve-data.client';
     FxService,
     MarketDataCron,
     CorporateActionsService,
+    TrmService,
+    TrmResolver,
   ],
   exports: [
     TypeOrmModule,

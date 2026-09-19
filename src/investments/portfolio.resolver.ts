@@ -1,4 +1,5 @@
 import { UseGuards } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Scopes } from '../auth/decorators/scopes.decorator';
@@ -23,6 +24,9 @@ import {
 import { PortfolioAnalyticsService } from './portfolio-analytics.service';
 import { SnapshotsService } from './snapshots.service';
 import { InvestmentTransactionsService } from './investment-transactions.service';
+import { Repository } from 'typeorm';
+import { User } from '../users/entities/user.entity';
+import { assertCurrency } from '../common/currency';
 
 @Resolver(() => PortfolioSummary)
 @UseGuards(GqlAuthGuard)
@@ -33,7 +37,27 @@ export class PortfolioResolver {
     private readonly benchmarksService: BenchmarksService,
     private readonly pricesService: PricesService,
     private readonly transactionsService: InvestmentTransactionsService,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
   ) {}
+
+  @Mutation(() => User, {
+    description: 'Actualiza por separado las monedas base personal e inversora',
+  })
+  @Scopes(ApiScope.INVESTMENTS_WRITE)
+  async updateBaseCurrencies(
+    @CurrentUser() user: Principal,
+    @Args('financeBaseCurrency') financeBaseCurrency: string,
+    @Args('investmentBaseCurrency') investmentBaseCurrency: string,
+  ): Promise<User> {
+    const finance = assertCurrency(financeBaseCurrency);
+    const investment = assertCurrency(investmentBaseCurrency);
+    await this.usersRepository.update(
+      { id: user.sub },
+      { financeBaseCurrency: finance, investmentBaseCurrency: investment },
+    );
+    return this.usersRepository.findOneByOrFail({ id: user.sub });
+  }
 
   @Query(() => [PositionView], {
     description: 'Posiciones abiertas valoradas a precio de mercado',

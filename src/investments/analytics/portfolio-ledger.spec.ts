@@ -403,6 +403,23 @@ describe('portfolio-ledger: efectivo e ingresos', () => {
     ]);
   });
 
+  it('convierte un aporte en USD a COP cuando COP es la moneda base', () => {
+    const state = replay([
+      event({
+        type: InvestmentTransactionType.DEPOSIT,
+        instrumentId: null,
+        occurredOn: '2026-01-01',
+        currency: 'USD',
+        amount: 1000,
+        fxRate: 4000,
+      }),
+    ]);
+
+    expect(cashOf(state, 'USD')).toBe(1000);
+    expect(state.contributionsBase).toBe(4_000_000);
+    expect(state.flows[0]?.amountBase).toBe(4_000_000);
+  });
+
   it('WITHDRAWAL resta efectivo y registra flujo negativo', () => {
     const state = replay([
       event({
