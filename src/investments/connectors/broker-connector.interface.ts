@@ -58,6 +58,15 @@ export interface RawTransaction {
   occurredAt: Date | null;
   symbolHint: string | null;
   exchangeHint: string | null;
+  /**
+   * Tipo de activo, cuando el conector lo sabe.
+   *
+   * Sin esto el instrumento se crea como EQUITY por defecto, y una cripto
+   * comprada en un exchange acababa catalogada como acción. También decide la
+   * moneda del instrumento: una cripto cotiza en USD aunque la hayas comprado
+   * con pesos.
+   */
+  assetClassHint?: 'equity' | 'etf' | 'crypto' | 'forex' | 'other';
   quantity: number | null;
   price: number | null;
   amount: number;

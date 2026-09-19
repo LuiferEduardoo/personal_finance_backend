@@ -25,6 +25,8 @@ export interface ResolveInstrumentOptions {
   currency?: string;
   assetClass?: InstrumentAssetClass;
   isin?: string | null;
+  /** símbolo con el que pedirle el precio al proveedor */
+  twelveDataSymbol?: string;
 }
 
 const today = (): string => new Date().toISOString().substring(0, 10);
@@ -147,6 +149,7 @@ export class InstrumentsService {
         currency: assertCurrency(options.currency ?? 'USD'),
         assetClass: options.assetClass ?? InstrumentAssetClass.EQUITY,
         isin: options.isin ?? null,
+        twelveDataSymbol: options.twelveDataSymbol ?? null,
         priceSource: InstrumentPriceSource.MANUAL,
       }),
     );

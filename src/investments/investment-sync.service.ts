@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { assertCurrency } from '../common/currency';
 import { InvestmentTransactionType } from '../common/enums/investment-transaction-type.enum';
 import { FxService } from '../market-data/fx.service';
+import { InstrumentAssetClass } from '../market-data/entities/instrument.entity';
 import { InstrumentsService } from '../market-data/instruments.service';
 import { PricesService } from '../market-data/prices.service';
 import { roundMoney, roundQuantity } from './analytics/money';
@@ -292,12 +293,21 @@ export class InvestmentSyncService {
 
     let instrumentId: string | null = null;
     if (row.symbolHint) {
+      const esCripto = row.assetClassHint === 'crypto';
       const instrument = await this.instrumentsService.resolveOrCreate(
         row.symbolHint,
         {
           exchange: row.exchangeHint,
-          currency,
+          // Una cripto cotiza en USD aunque la hayas comprado con pesos: la
+          // moneda de la OPERACIÓN no es la moneda del INSTRUMENTO. Pasar la
+          // de la operación dejaba BTC catalogado como "cotiza en COP".
+          currency: esCripto ? 'USD' : currency,
           name: row.symbolHint,
+          assetClass: esCripto
+            ? InstrumentAssetClass.CRYPTO
+            : this.assetClassOf(row.assetClassHint),
+          // así el motor de precios sabe qué pedirle a Twelve Data
+          twelveDataSymbol: esCripto ? `${row.symbolHint}/USD` : undefined,
         },
       );
       instrumentId = instrument.id;
@@ -362,6 +372,23 @@ export class InvestmentSyncService {
         occurrenceIndex: 0,
       }),
     };
+  }
+
+  private assetClassOf(
+    hint: string | undefined,
+  ): InstrumentAssetClass | undefined {
+    switch (hint) {
+      case 'etf':
+        return InstrumentAssetClass.ETF;
+      case 'forex':
+        return InstrumentAssetClass.FOREX;
+      case 'other':
+        return InstrumentAssetClass.OTHER;
+      case 'equity':
+        return InstrumentAssetClass.EQUITY;
+      default:
+        return undefined;
+    }
   }
 
   private async baseCurrency(userId: string): Promise<string> {

@@ -18,12 +18,28 @@ import {
 
 const BASE_URL = 'https://api.binance.com';
 const TIMEOUT_MS = 15_000;
-const RECV_WINDOW = 10_000;
+// Binance rechaza con -1021 si el timestamp queda fuera de esta ventana. Se
+// sube al máximo que admite (60 s) porque una cadena larga de llamadas con
+// espera entre ellas arrastra deriva.
+const RECV_WINDOW = 60_000;
+// reintentos ante 429 y ante deriva de reloj
+const MAX_RETRIES = 3;
+const BACKOFF_BASE_MS = 2_000;
 
 // Binance cuenta "peso" por endpoint; 1200/minuto es el tope de la cuenta.
 // Se deja margen porque /myTrades pesa más que una consulta simple.
 const WEIGHT_LIMIT = 400;
 const WEIGHT_WINDOW_MS = 60_000;
+
+// Ventanas MÁXIMAS que impone Binance por llamada. Pedir un rango más ancho
+// devuelve vacío EN SILENCIO, sin error: así es como se perdían las compras
+// hechas por Convert, porque una consulta "de toda la vida" no devuelve nada.
+const CONVERT_WINDOW_DAYS = 30;
+const FIAT_WINDOW_DAYS = 90;
+// cuánto histórico recorrer cuando todavía no hay cursor
+const DEFAULT_LOOKBACK_DAYS = 730;
+// tope de tramos por sincronización, para no agotar la cuota de peso
+const MAX_WINDOWS = 40;
 
 // Monedas de cotización por defecto contra las que buscar pares. El usuario
 // puede cambiarlas con "pairs" en las credenciales.
@@ -54,7 +70,38 @@ interface BinanceCursor extends SyncCursor {
   /** último tradeId visto por símbolo */
   fromId?: Record<string, number>;
   lastSyncedAt?: number;
+  /**
+   * Desde cuándo se ha recorrido YA cada fuente, en milisegundos.
+   *
+   * Es por fuente y no global a propósito: si solo se guardara "última
+   * sincronización", añadir una fuente nueva (como Convert) la dejaría atada a
+   * esa fecha y su histórico no se recuperaría nunca. Una fuente sin marca
+   * aquí se recorre entera.
+   */
+  coveredFrom?: Record<string, number>;
 }
+
+// Monedas que se tratan como "dinero" y no como activo: si una conversión va
+// de una de estas a una cripto, es una COMPRA de esa cripto, no dos
+// operaciones.
+const CASH_ASSETS = new Set([
+  'COP',
+  'USD',
+  'EUR',
+  'GBP',
+  'BRL',
+  'MXN',
+  'ARS',
+  'PEN',
+  'CLP',
+  'TRY',
+  'USDT',
+  'USDC',
+  'FDUSD',
+  'BUSD',
+  'TUSD',
+  'DAI',
+]);
 
 @Injectable()
 export class BinanceConnector implements BrokerConnector {
@@ -166,10 +213,32 @@ export class BinanceConnector implements BrokerConnector {
     }
 
     rows.push(...(await this.fetchCashMovements(creds, warnings)));
+    // Convert y las órdenes fiat NO aparecen en /api/v3/myTrades. Muchas
+    // compras pequeñas de cripto se hacen por ahí, así que sin esto la
+    // sincronización devuelve cero aunque haya saldo.
+    rows.push(...(await this.fetchConvertTrades(creds, previous, warnings)));
+    rows.push(...(await this.fetchFiatOrders(creds, previous, warnings)));
 
+    const ahora = Date.now();
     return {
       rows,
-      cursor: { fromId, lastSyncedAt: Date.now() } satisfies BinanceCursor,
+      cursor: {
+        fromId,
+        lastSyncedAt: ahora,
+        coveredFrom: {
+          ...(previous.coveredFrom ?? {}),
+          // se conserva la marca más ANTIGUA cubierta: así no se pierde
+          // histórico ya recorrido
+          convert: Math.min(
+            previous.coveredFrom?.convert ?? ahora,
+            this.since(previous, 'convert'),
+          ),
+          fiat: Math.min(
+            previous.coveredFrom?.fiat ?? ahora,
+            this.since(previous, 'fiat'),
+          ),
+        },
+      } satisfies BinanceCursor,
       partial: warnings.length > 0,
       warnings,
     };
@@ -221,6 +290,265 @@ export class BinanceConnector implements BrokerConnector {
       10,
     );
     return new Set((info.symbols ?? []).map((entry) => entry.symbol));
+  }
+
+  // Recorre un rango largo en tramos, porque Binance acota la ventana por
+  // llamada y un rango mayor devuelve vacío SIN error.
+  private windows(
+    since: number,
+    windowDays: number,
+  ): { start: number; end: number }[] {
+    const day = 86_400_000;
+    const now = Date.now();
+    const tramos: { start: number; end: number }[] = [];
+    for (
+      let start = since;
+      start < now && tramos.length < MAX_WINDOWS;
+      start += windowDays * day
+    ) {
+      tramos.push({ start, end: Math.min(start + windowDays * day, now) });
+    }
+    return tramos;
+  }
+
+  // Desde cuándo pedir una fuente concreta.
+  //
+  // Si esa fuente ya se recorrió antes, basta con retroceder una semana sobre
+  // lo cubierto (el solape lo absorbe la deduplicación). Si NUNCA se recorrió
+  // —porque es una fuente recién añadida— se va al histórico completo, que es
+  // justo lo que hacía falta para recuperar las compras por Convert de
+  // conexiones que ya tenían cursor.
+  private since(cursor: BinanceCursor, source: string): number {
+    const day = 86_400_000;
+    const covered = cursor.coveredFrom?.[source];
+    if (!covered) {
+      return Date.now() - DEFAULT_LOOKBACK_DAYS * day;
+    }
+    return covered - 7 * day;
+  }
+
+  // Binance Convert: el canal por el que se compran cripto sin pasar por el
+  // libro de órdenes. Ventana máxima de 30 días por llamada.
+  private async fetchConvertTrades(
+    creds: BrokerCredentials,
+    cursor: BinanceCursor,
+    warnings: string[],
+  ): Promise<RawTransaction[]> {
+    const rows: RawTransaction[] = [];
+    for (const { start, end } of this.windows(
+      this.since(cursor, 'convert'),
+      CONVERT_WINDOW_DAYS,
+    )) {
+      try {
+        const page = await this.signed<{
+          list?: {
+            quoteId: string;
+            orderId: number;
+            createTime: number;
+            fromAsset: string;
+            fromAmount: string;
+            toAsset: string;
+            toAmount: string;
+            orderStatus: string;
+          }[];
+        }>(
+          creds,
+          '/sapi/v1/convert/tradeFlow',
+          { startTime: String(start), endTime: String(end), limit: '100' },
+          // los endpoints de /sapi tienen su propio tope, más estrecho que el
+          // del libro de órdenes: se les cobra más peso para espaciarlos
+          30,
+        );
+        for (const trade of page.list ?? []) {
+          if (trade.orderStatus !== 'SUCCESS') {
+            continue;
+          }
+          rows.push(...this.convertToTransactions(trade));
+        }
+      } catch (error) {
+        warnings.push(`Convert: ${(error as Error).message}`);
+        break;
+      }
+    }
+    return rows;
+  }
+
+  // Una conversión con dinero en un lado es UNA compra o UNA venta. Entre dos
+  // criptos son dos operaciones: se vende una y se compra la otra.
+  private convertToTransactions(trade: {
+    orderId: number;
+    createTime: number;
+    fromAsset: string;
+    fromAmount: string;
+    toAsset: string;
+    toAmount: string;
+  }): RawTransaction[] {
+    const when = new Date(Number(trade.createTime));
+    const occurredOn = toDateString(when)!;
+    const fromAmount = Math.abs(Number(trade.fromAmount));
+    const toAmount = Math.abs(Number(trade.toAmount));
+    const base = {
+      occurredOn,
+      occurredAt: when,
+      exchangeHint: 'BINANCE',
+      assetClassHint: 'crypto' as const,
+      fee: 0,
+      tax: 0,
+      settlementCurrency: null,
+      settlementAmount: null,
+      notes: `Binance Convert: ${trade.fromAsset} -> ${trade.toAsset}`,
+      raw: trade as unknown as Record<string, unknown>,
+    };
+
+    const desdeDinero = CASH_ASSETS.has(trade.fromAsset);
+    const haciaDinero = CASH_ASSETS.has(trade.toAsset);
+
+    if (desdeDinero && !haciaDinero) {
+      // dinero -> cripto: compra
+      return [
+        {
+          ...base,
+          type: InvestmentTransactionType.BUY,
+          symbolHint: trade.toAsset,
+          quantity: toAmount,
+          price: toAmount ? fromAmount / toAmount : null,
+          amount: fromAmount,
+          currency: trade.fromAsset,
+          externalId: `convert:${trade.orderId}:buy`,
+        },
+      ];
+    }
+
+    if (!desdeDinero && haciaDinero) {
+      // cripto -> dinero: venta
+      return [
+        {
+          ...base,
+          type: InvestmentTransactionType.SELL,
+          symbolHint: trade.fromAsset,
+          quantity: fromAmount,
+          price: fromAmount ? toAmount / fromAmount : null,
+          amount: toAmount,
+          currency: trade.toAsset,
+          externalId: `convert:${trade.orderId}:sell`,
+        },
+      ];
+    }
+
+    if (!desdeDinero && !haciaDinero) {
+      // cripto -> cripto: venta de una y compra de la otra
+      return [
+        {
+          ...base,
+          type: InvestmentTransactionType.SELL,
+          symbolHint: trade.fromAsset,
+          quantity: fromAmount,
+          price: null,
+          amount: 0,
+          currency: trade.fromAsset,
+          externalId: `convert:${trade.orderId}:sell`,
+        },
+        {
+          ...base,
+          type: InvestmentTransactionType.BUY,
+          symbolHint: trade.toAsset,
+          quantity: toAmount,
+          price: null,
+          amount: 0,
+          currency: trade.toAsset,
+          externalId: `convert:${trade.orderId}:buy`,
+        },
+      ];
+    }
+
+    // dinero -> dinero: es un cambio de divisa
+    return [
+      {
+        ...base,
+        type: InvestmentTransactionType.CURRENCY_EXCHANGE,
+        symbolHint: null,
+        quantity: null,
+        price: null,
+        amount: fromAmount,
+        currency: trade.fromAsset,
+        settlementCurrency: trade.toAsset,
+        settlementAmount: toAmount,
+        externalId: `convert:${trade.orderId}:fx`,
+      },
+    ];
+  }
+
+  // Depósitos y retiros de DINERO por la pasarela fiat (PSE, transferencia,
+  // tarjeta). No son los mismos que /capital/deposit, que es para cripto.
+  private async fetchFiatOrders(
+    creds: BrokerCredentials,
+    cursor: BinanceCursor,
+    warnings: string[],
+  ): Promise<RawTransaction[]> {
+    const rows: RawTransaction[] = [];
+    for (const tipo of ['0', '1'] as const) {
+      for (const { start, end } of this.windows(
+        this.since(cursor, 'fiat'),
+        FIAT_WINDOW_DAYS,
+      )) {
+        try {
+          const page = await this.signed<{
+            data?: {
+              orderNo: string;
+              fiatCurrency: string;
+              amount: string;
+              totalFee: string;
+              status: string;
+              createTime: number;
+              method?: string;
+            }[];
+          }>(
+            creds,
+            '/sapi/v1/fiat/orders',
+            {
+              transactionType: tipo,
+              beginTime: String(start),
+              endTime: String(end),
+              rows: '100',
+            },
+            // fiat/orders es de los más caros: 90 de peso por llamada
+            90,
+          );
+          for (const order of page.data ?? []) {
+            // los intentos fallidos o expirados no son movimientos reales
+            if (order.status !== 'Successful') {
+              continue;
+            }
+            const when = new Date(Number(order.createTime));
+            rows.push({
+              type:
+                tipo === '0'
+                  ? InvestmentTransactionType.DEPOSIT
+                  : InvestmentTransactionType.WITHDRAWAL,
+              occurredOn: toDateString(when)!,
+              occurredAt: when,
+              symbolHint: null,
+              exchangeHint: null,
+              quantity: null,
+              price: null,
+              amount: Math.abs(Number(order.amount)),
+              fee: Math.abs(Number(order.totalFee ?? 0)),
+              tax: 0,
+              currency: order.fiatCurrency,
+              settlementCurrency: null,
+              settlementAmount: null,
+              externalId: `fiat:${order.orderNo}`,
+              notes: order.method ? `Binance ${order.method}` : null,
+              raw: order as unknown as Record<string, unknown>,
+            });
+          }
+        } catch (error) {
+          warnings.push(`Órdenes fiat: ${(error as Error).message}`);
+          break;
+        }
+      }
+    }
+    return rows;
   }
 
   private async fetchCashMovements(
@@ -321,6 +649,7 @@ export class BinanceConnector implements BrokerConnector {
       occurredAt: when,
       symbolHint: symbol,
       exchangeHint: 'BINANCE',
+      assetClassHint: 'crypto',
       quantity: Number(trade.qty),
       price: Number(trade.price),
       amount: Number(trade.quoteQty),
@@ -372,6 +701,9 @@ export class BinanceConnector implements BrokerConnector {
 
   // --- HTTP ---
 
+  // La firma incluye el timestamp, así que un reintento NO puede reenviar la
+  // misma URL: hay que volver a firmar con la hora nueva. Por eso el reintento
+  // vive aquí y no en request().
   private async signed<T>(
     creds: BrokerCredentials,
     path: string,
@@ -381,20 +713,52 @@ export class BinanceConnector implements BrokerConnector {
     const apiKey = creds.require('apiKey');
     const apiSecret = creds.require('apiSecret');
 
-    const query = new URLSearchParams({
-      ...params,
-      recvWindow: String(RECV_WINDOW),
-      timestamp: String(Date.now()),
-    });
-    // HMAC-SHA256 con el crypto nativo: cero dependencias nuevas
-    const signature = createHmac('sha256', apiSecret)
-      .update(query.toString())
-      .digest('hex');
-    query.set('signature', signature);
+    let ultimo: Error | null = null;
+    for (let intento = 0; intento < MAX_RETRIES; intento += 1) {
+      const query = new URLSearchParams({
+        ...params,
+        recvWindow: String(RECV_WINDOW),
+        timestamp: String(Date.now()),
+      });
+      // HMAC-SHA256 con el crypto nativo: cero dependencias nuevas
+      query.set(
+        'signature',
+        createHmac('sha256', apiSecret).update(query.toString()).digest('hex'),
+      );
 
-    return this.request<T>(`${path}?${query.toString()}`, weight, {
-      'X-MBX-APIKEY': apiKey,
-    });
+      try {
+        return await this.request<T>(`${path}?${query.toString()}`, weight, {
+          'X-MBX-APIKEY': apiKey,
+        });
+      } catch (error) {
+        ultimo = error as Error;
+        const mensaje = ultimo.message;
+        // -1021: el timestamp quedó fuera de la ventana. Firmar de nuevo con la
+        // hora actual suele bastar.
+        const derivaReloj = mensaje.includes('-1021');
+        // -1003 / 429 / 418: hay que ESPERAR, no insistir. Seguir martilleando
+        // puede acabar en un bloqueo temporal de la IP.
+        const limitado =
+          mensaje.includes('-1003') ||
+          mensaje.includes(' 429') ||
+          mensaje.includes(' 418');
+
+        if (!derivaReloj && !limitado) {
+          throw ultimo;
+        }
+        if (intento === MAX_RETRIES - 1) {
+          break;
+        }
+        if (limitado) {
+          const espera = BACKOFF_BASE_MS * 2 ** intento;
+          this.logger.warn(
+            `Binance limitó la petición; se espera ${espera} ms antes de reintentar`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, espera));
+        }
+      }
+    }
+    throw ultimo ?? new BadGatewayException('Binance no respondió');
   }
 
   private publicGet<T>(
