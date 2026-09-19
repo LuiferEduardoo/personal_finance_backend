@@ -33,6 +33,11 @@ export enum ApiScope {
   INFLATION_READ = 'inflation:read',
 
   INVOICES_WRITE = 'invoices:write',
+
+  INVESTMENTS_READ = 'investments:read',
+  INVESTMENTS_WRITE = 'investments:write',
+
+  MARKET_DATA_READ = 'market-data:read',
 }
 
 registerEnumType(ApiScope, {

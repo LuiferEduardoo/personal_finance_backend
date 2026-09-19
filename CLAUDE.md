@@ -20,7 +20,7 @@ Backend de finanzas personales. Este repositorio es **solo el backend** (API); n
 7. **Cuentas**: efectivo, banco, tarjeta, etc. (`payment_methods`, expuesto en GraphQL como `Account` con CRUD). Cada cuenta lleva un **saldo** (`balance`) que se mantiene solo: los ingresos suman, los gastos restan y hay **transferencias** entre cuentas (`account_transfers`; transferir a una de crédito paga la tarjeta). En crédito, `balance` negativo = deuda y `availableCredit = creditLimit + balance`; no se permite un gasto que exceda el cupo.
 4. **Análisis de facturas por imagen**: extraer los datos de una factura a partir de una imagen.
 5. **Integración con correo electrónico**: conectar con el correo del usuario para analizar los correos y detectar automáticamente cuándo llega una factura.
-6. **Registro de inversiones**: registro y seguimiento de las inversiones del usuario.
+6. **Registro de inversiones**: cartera multi-bróker. Un **libro de operaciones** (`investment_transactions`) con 13 tipos (BUY, SELL, DIVIDEND, INTEREST, DEPOSIT, WITHDRAWAL, FEE, TAX, SPLIT, TRANSFER_IN, TRANSFER_OUT, CURRENCY_EXCHANGE); todo lo demás (lotes, posiciones, efectivo, P&L) es **derivado** y se reconstruye desde ahí. La base de costo es **FIFO con lotes fiscales**, no configurable. Los instrumentos y sus precios viven en `src/market-data/` y son **globales** (sin `user_id`). El efecto de cada operación está implementado en un único sitio: `src/investments/analytics/portfolio-ledger.ts`, que es puro y está cubierto por tests. Fase actual: núcleo con precios manuales; pendientes precios automáticos (Twelve Data), TWR/XIRR, benchmarks, importación de archivos y conectores de bróker.
 
 ## Autenticación
 

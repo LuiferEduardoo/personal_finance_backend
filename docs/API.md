@@ -21,6 +21,7 @@ En desarrollo está disponible el playground de Apollo abriendo esa misma URL en
 - [Inflación](#inflación)
 - [Productos](#productos)
 - [Compras y ciclos de consumo](#compras-y-ciclos-de-consumo)
+- [Inversiones](#inversiones)
 - [Utilidades](#utilidades)
 - [Tipos y enums](#tipos-y-enums)
 - [Manejo de errores](#manejo-de-errores)
@@ -684,6 +685,203 @@ query {
 
 ---
 
+## Inversiones
+
+Registro y seguimiento de la cartera. El backend responde cuánto tengo, cuánto aporté, cuánto gané y cómo se reparte.
+
+### Cómo funciona
+
+El sistema guarda **un libro de operaciones** (`investmentTransactions`) con 13 tipos de movimiento. Todo lo demás —lotes, posiciones, efectivo, P&L— es **derivado**: se reconstruye a partir de ese libro y nunca se edita por separado.
+
+**La base de costo es FIFO**, con lotes fiscales persistidos. Es la única disponible y no es configurable: es lo que exige la DIAN y lo que reportan IBKR y eToro. En una venta se consumen los lotes más antiguos primero, y cada lote consumido deja un registro auditable.
+
+> Ejemplo: compras 10 @ 150, luego 10 @ 170, y vendes 15 @ 200.
+> FIFO da `10 × (200−150) + 5 × (200−170) = **650**`.
+> El costo promedio ponderado habría dado 600. El número que verás es 650.
+
+**El P&L realizado y el no realizado salen de la misma pasada de cálculo**, así que no pueden discrepar: lo no realizado se computa sobre exactamente los lotes que la venta dejó abiertos.
+
+### Efecto de cada operación
+
+| Tipo | Efectivo | Cantidad | Base de costo | P&L realizado |
+| --- | --- | --- | --- | --- |
+| `BUY` | −(importe+comisión+impuesto) | +cantidad | abre lote, **comisiones capitalizadas** | — |
+| `SELL` | +(importe−comisión−impuesto) | −cantidad | consume lotes FIFO | sí, uno por lote |
+| `DIVIDEND` | +(importe−impuesto−comisión) | — | intacta | no: es **ingreso** |
+| `INTEREST` | +(importe−impuesto−comisión) | — | intacta | no: es ingreso |
+| `DEPOSIT` | +importe | — | — | **flujo externo +** (capital aportado) |
+| `WITHDRAWAL` | −importe | — | — | **flujo externo −** |
+| `FEE` | −importe | — | **nunca la toca** | no |
+| `TAX` | −importe | — | nunca la toca | no |
+| `SPLIT` | sin efecto | ×(num/den) | costo unitario ÷(num/den); **base total invariante** | — |
+| `TRANSFER_IN` | sin efecto | +cantidad | abre lote (ver escalera abajo) | — |
+| `TRANSFER_OUT` | sin efecto | −cantidad | consume FIFO; con `counterpartyAccountId` reabre los lotes allí **conservando base y fecha** | **no**: una transferencia no es una enajenación |
+| `CURRENCY_EXCHANGE` | −importe en `currency`, +`settlementAmount` en `settlementCurrency` | — | — | no |
+
+**Convención de signo**: `quantity`, `amount`, `fee` y `tax` son siempre positivos. La dirección la marca el `type`. La base de datos lo verifica con `CHECK`.
+
+**Comisiones e impuestos**: los que forman parte de la operación van en los campos `fee`/`tax` de esa fila y se capitalizan (compra) o se netean (venta). Los cargos sueltos se registran como filas `FEE`/`TAX` propias y **nunca tocan la base**, aunque lleven `instrumentId`. Eso es lo que mantiene honesto el retorno: se ven como caída de valor, no como flujo externo.
+
+**Escalera de la base de costo en `TRANSFER_IN`** (los brókers no suelen darla):
+
+1. El `price` de la fila, si se aportó → base exacta.
+2. El cierre cacheado de esa fecha → base **estimada**.
+3. Sin precio → lote con costo 0, **marcado**.
+
+En los casos 2 y 3 el lote queda con `costBasisIsEstimated: true`, y se propaga a `PositionView.costBasisIsEstimated` y a `PortfolioSummary.estimatedBasisPositionsCount`. Un P&L calculado sobre una base estimada se **marca**, no se publica como si fuera exacto. Se corrige con `setLotCostBasis`.
+
+### 🔒 `investmentAccounts` — cuentas de inversión
+
+```graphql
+query { investmentAccounts { id name broker currency isActive } }
+```
+
+Mutaciones: `createInvestmentAccount`, `updateInvestmentAccount`, `deleteInvestmentAccount`.
+El `broker` puede ser `ETORO`, `INTERACTIVE_BROKERS`, `BINANCE`, `XTB` o `MANUAL`.
+
+### 🔒 `investmentCashBalances` — efectivo por moneda
+
+Una cuenta de bróker sostiene USD, EUR y USDT a la vez, así que el saldo es **uno por moneda**, no uno solo.
+
+```graphql
+query { investmentCashBalances(accountId: "...") { currency amount } }
+```
+
+### 🔒 `investmentTransactions` — el libro de operaciones
+
+**Es el único endpoint paginado del backend.** Un histórico de 5 años de IBKR más Binance pasa fácil de 20 000 filas.
+
+```graphql
+query {
+  investmentTransactions(filter: {
+    from: "2026-01-01", to: "2026-12-31",
+    accountId: "...", instrumentId: "...",
+    types: [BUY, SELL],
+    limit: 100, offset: 0
+  }) { id type occurredOn quantity price amount fee tax currency
+       instrument { symbol } account { name } }
+  investmentTransactionsCount(filter: { types: [BUY, SELL] })
+}
+```
+
+`limit` por defecto 100, máximo **500**; por encima devuelve `BAD_REQUEST`.
+
+```graphql
+mutation {
+  createInvestmentTransaction(input: {
+    accountId: "...", instrumentId: "...", type: BUY,
+    occurredOn: "2026-01-02", quantity: 10, price: 150, currency: "USD"
+  }) { id }
+}
+```
+
+En `BUY` y `SELL`, si se omite `amount` se calcula como `quantity × price`.
+`occurredAt` es opcional y solo sirve para desempatar el orden FIFO dentro del mismo día.
+
+**Deduplicación**: cada operación lleva un `dedupeHash` con un índice único por usuario. Registrar dos veces lo mismo devuelve `CONFLICT`. Si de verdad hiciste dos operaciones idénticas el mismo día, usa `occurrenceIndex: 1` en la segunda.
+
+Mutaciones: `updateInvestmentTransaction`, `deleteInvestmentTransaction`. Cualquier edición o borrado reconstruye lotes y posiciones **en la misma transacción de base de datos**, así que el libro y sus derivados no pueden quedar descuadrados.
+
+### 🔒 `investmentPositions` — posiciones valoradas
+
+```graphql
+query {
+  investmentPositions(filter: { asOf: "2026-09-19", includeClosed: false }) {
+    quantity averageCost costBasis costBasisBase
+    lastPrice lastPriceOn marketValueBase unrealizedPnlBase unrealizedReturn
+    realizedPnlToDateBase costBasisIsEstimated priceMissing
+    instrument { symbol name sector country } account { name broker }
+  }
+}
+```
+
+> `averageCost` es un **informe** de los lotes FIFO abiertos, no un segundo método de cálculo. No lo uses para computar P&L realizado.
+
+**Sin precio no se valora en 0.** `marketValueBase` queda en `null`, `priceMissing` en `true`, y la posición se excluye del total y se cuenta en `missingPriceCount`. Un número ausente es honesto; un cero es una mentira.
+
+### 🔒 `portfolioSummary` — resumen de la cartera
+
+```graphql
+query {
+  portfolioSummary(asOf: "2026-09-19") {
+    baseCurrency asOf
+    investedCapital costBasis marketValue cash
+    unrealizedPnl realizedPnl dividends interest fees taxes
+    simpleReturn positionsCount
+    missingPriceCount estimatedBasisPositionsCount pricesStale pricesAsOf
+  }
+}
+```
+
+| Campo | Qué es |
+| --- | --- |
+| `investedCapital` | Capital aportado: depósitos menos retiros |
+| `costBasis` | Patrimonio invertido: base de costo de las posiciones abiertas |
+| `marketValue` | Valor actual: posiciones a precio de mercado más efectivo |
+| `unrealizedPnl` | Ganancia o pérdida **no** realizada |
+| `realizedPnl` | Ganancia o pérdida realizada acumulada (FIFO) |
+| `dividends` | Dividendos recibidos, netos de retención |
+| `simpleReturn` | `(valor actual − capital aportado) / capital aportado`, en %. `null` sin capital aportado |
+
+Los cuatro últimos campos son la **honestidad del dato**: cuántas posiciones no se pudieron valorar, cuántas tienen base estimada, y si algún precio usado es anterior a la fecha pedida.
+
+### 🔒 `portfolioAllocation` — distribución
+
+```graphql
+query { portfolioAllocation(dimension: SECTOR, asOf: "2026-09-19") {
+  total missingPriceCount
+  slices { key label marketValue costBasis percentage positionsCount }
+} }
+```
+
+`dimension` acepta `BROKER`, `INSTRUMENT`, `SECTOR`, `COUNTRY`, `CURRENCY` y `ASSET_CLASS`.
+El `total` **excluye** las posiciones sin precio; las excluidas se cuentan en `missingPriceCount`.
+
+### 🔒 Instrumentos
+
+Los instrumentos son datos de referencia **globales**, sin dueño: el histórico de precios que descarga un usuario sirve para todos.
+
+```graphql
+query { instrumentSearch(query: "AAPL", limit: 25) { id symbol name currency sector country assetClass } }
+mutation { createInstrument(input: {
+  symbol: "AAPL", name: "Apple Inc.", currency: "USD",
+  exchange: "NASDAQ", assetClass: EQUITY, sector: "Technology", country: "US"
+}) { id } }
+mutation { setInstrumentPrice(input: { instrumentId: "...", close: 220, priceOn: "2026-09-19" }) { lastPrice } }
+```
+
+`setInstrumentPrice` no pisa la valoración de hoy si cargas un cierre más antiguo.
+
+### 🔒 `setLotCostBasis` — corregir una base estimada
+
+```graphql
+mutation { setLotCostBasis(input: { lotId: "...", costPerUnit: 120 }) { id costPerUnit costBasisIsEstimated } }
+```
+
+Corrige la operación de origen y reconstruye, porque el P&L realizado de cualquier venta posterior cambia.
+
+### 🔒 `rebuildInvestmentPositions` — válvula manual
+
+```graphql
+mutation { rebuildInvestmentPositions(accountId: "...") }
+```
+
+Recalcula lotes, realizaciones, posiciones y efectivo desde el libro. Es el equivalente de `recalculateAccountBalance`. **El resultado debe coincidir exactamente con el del camino incremental**; si no coincide, hay un bug.
+
+### Multidivisa — estado actual
+
+Cada operación guarda su `currency` y el `fxRate` a la moneda base **congelado en el momento de escribir**, para que un informe histórico no se mueva cuando un proveedor revise su serie.
+
+> **Limitación conocida**: hoy la valoración de posiciones a moneda base usa la tasa **más reciente que el propio usuario registró** en una operación de esa moneda, o 1 si no hay ninguna. No hay tasas de mercado todavía. Una cartera multidivisa arrastra por tanto el sesgo de la última tasa escrita a mano. Esto se sustituye por la tabla `fx_rates` alimentada por Twelve Data en la siguiente fase.
+
+### Alcance actual
+
+Implementado: el núcleo (libro de 13 operaciones, FIFO con lotes, posiciones, efectivo multimoneda, métricas y distribuciones) con **precios manuales**.
+
+Pendiente: precios automáticos y tasas de cambio desde Twelve Data, evolución histórica del patrimonio, TWR, XIRR/MWR, comparación contra benchmarks, importación CSV/XLSX/PDF y conexión con eToro, Interactive Brokers, Binance y XTB.
+
+---
+
 ## Utilidades
 
 ### `health` — healthcheck
@@ -720,6 +918,34 @@ query { health }
 
 `LOCAL` · `GOOGLE`
 
+### `InvestmentTransactionType`
+
+`BUY` · `SELL` · `DIVIDEND` · `INTEREST` · `DEPOSIT` · `WITHDRAWAL` · `FEE` · `TAX` · `SPLIT` · `TRANSFER_IN` · `TRANSFER_OUT` · `CURRENCY_EXCHANGE`
+
+### `BrokerKind`
+
+`ETORO` · `INTERACTIVE_BROKERS` · `BINANCE` · `XTB` · `MANUAL`
+
+### `InstrumentAssetClass`
+
+`EQUITY` · `ETF` · `FUND` · `BOND` · `CRYPTO` · `FOREX` · `COMMODITY` · `CFD` · `CASH` · `OTHER`
+
+### `AllocationDimension`
+
+`BROKER` · `INSTRUMENT` · `SECTOR` · `COUNTRY` · `CURRENCY` · `ASSET_CLASS`
+
+### `RealizationDisposition`
+
+`SALE` · `TRANSFER_OUT`
+
+### `InstrumentPriceSource`
+
+`TWELVE_DATA` · `MANUAL` · `BROKER` · `NONE`
+
+### `BenchmarkKey`
+
+`SP500` · `NASDAQ100` · `MSCI_WORLD`
+
 ---
 
 ## Manejo de errores
@@ -744,7 +970,7 @@ Los errores siguen el formato estándar de GraphQL, con el código en `extension
 | `UNAUTHENTICATED` | Falta el token, está expirado o es inválido; credenciales incorrectas en `login` |
 | `BAD_REQUEST` | Datos inválidos: formato de periodo incorrecto, modificar categorías del sistema, marcar como agotado un artículo sin ciclo abierto, enviar `articleId` y `newArticle` a la vez, gasto que **excede el cupo** de la tarjeta, transferencia con **fondos insuficientes** o a la misma cuenta |
 | `NOT_FOUND` | El recurso no existe o no pertenece al usuario |
-| `CONFLICT` | El email ya está registrado |
+| `CONFLICT` | El email ya está registrado; una operación de inversión duplicada (mismo `dedupeHash`) |
 | `GRAPHQL_VALIDATION_FAILED` | El query no cumple el esquema (campo inexistente, tipo incorrecto) |
 | `INTERNAL_SERVER_ERROR` | Error no controlado del servidor |
 
