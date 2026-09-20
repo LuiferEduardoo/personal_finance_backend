@@ -10,6 +10,7 @@ export interface InvestmentTransactionDraft {
   occurredOn: string | null;
   occurredAt: string | null;
   symbol: string | null;
+  sector: string | null;
   isin: string | null;
   instrumentId: string | null;
   /** true cuando no se pudo resolver el instrumento y el usuario debe elegirlo */

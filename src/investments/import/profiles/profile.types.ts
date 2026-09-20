@@ -7,6 +7,7 @@ export type CanonicalField =
   | 'occurredOn'
   | 'occurredAt'
   | 'symbol'
+  | 'sector'
   | 'isin'
   | 'quantity'
   | 'price'

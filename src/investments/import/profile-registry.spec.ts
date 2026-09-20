@@ -69,7 +69,7 @@ describe('ProfileRegistry: detección', () => {
       price: 'Precio Acción',
       amount: 'Importe',
       fee: 'Comisión',
-      notes: 'Sector',
+      sector: 'Sector',
     });
   });
 

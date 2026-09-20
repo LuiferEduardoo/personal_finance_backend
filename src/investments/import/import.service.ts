@@ -474,6 +474,7 @@ export class ImportService {
     }
 
     const symbol = (get('symbol') ?? '').trim() || null;
+    const sector = (get('sector') ?? '').trim() || null;
     const isin = (get('isin') ?? '').trim() || null;
     let instrumentId: string | null = null;
     let needsInstrument = false;
@@ -515,6 +516,7 @@ export class ImportService {
       occurredOn,
       occurredAt: null,
       symbol,
+      sector,
       isin,
       instrumentId,
       needsInstrument,

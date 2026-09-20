@@ -30,7 +30,7 @@ export const hapiPortfolioProfile: ParserProfile = {
     // Importe es el bruto; Importe total ya incorpora la comisión.
     amount: ['Importe'],
     fee: ['Comisión'],
-    notes: ['Sector'],
+    sector: ['Sector'],
   },
   typeMap: {
     compra: InvestmentTransactionType.BUY,

@@ -15,6 +15,7 @@ export const genericProfile: ParserProfile = {
     occurredAt: ['datetime', 'time', 'hora'],
     type: ['type', 'tipo', 'operation', 'operacion', 'side', 'action'],
     symbol: ['symbol', 'simbolo', 'ticker', 'asset', 'activo', 'instrument'],
+    sector: ['sector', 'industria', 'industry'],
     isin: ['isin'],
     quantity: ['quantity', 'cantidad', 'units', 'unidades', 'shares', 'volume'],
     price: ['price', 'precio', 'unit price', 'precio unitario'],

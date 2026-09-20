@@ -82,27 +82,42 @@ export class InstrumentsService {
     }
     const exchange = input.exchange?.trim().toUpperCase() ?? null;
 
-    const existing = await this.instrumentsRepository.findOne({
-      where: { symbol, exchange },
-    });
-    if (existing) {
-      throw new BadRequestException(
-        `El instrumento ${symbol}${exchange ? ` (${exchange})` : ''} ya existe`,
-      );
-    }
+    return this.instrumentsRepository.manager.transaction(async (manager) => {
+      // La restricción (symbol, exchange) no protege exchange=NULL en Postgres.
+      // El lock transaccional cierra además la carrera entre dos importaciones.
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `${symbol}|${exchange ?? ''}`,
+      ]);
+      const repository = manager.getRepository(Instrument);
+      const existing = await repository.findOne({ where: { symbol, exchange } });
+      if (existing) {
+        let enriched = false;
+        if (!existing.twelveDataSymbol && input.twelveDataSymbol) {
+          existing.twelveDataSymbol = input.twelveDataSymbol.trim().toUpperCase();
+          enriched = true;
+        }
+        if (!existing.sector && input.sector?.trim()) {
+          existing.sector = input.sector.trim();
+          enriched = true;
+        }
+        return enriched ? repository.save(existing) : existing;
+      }
 
-    const instrument = this.instrumentsRepository.create({
-      ...input,
-      symbol,
-      exchange,
-      currency,
-      country: input.country?.trim().toUpperCase() ?? null,
-      assetClass: input.assetClass ?? InstrumentAssetClass.EQUITY,
-      priceSource: InstrumentPriceSource.MANUAL,
-      // los benchmarks se refrescan siempre, tenga o no posiciones el usuario
-      needsDailyPrice: input.benchmarkKey != null,
+      return repository.save(repository.create({
+        ...input,
+        symbol,
+        exchange,
+        currency,
+        sector: input.sector?.trim() || null,
+        twelveDataSymbol:
+          input.twelveDataSymbol?.trim().toUpperCase() || symbol,
+        country: input.country?.trim().toUpperCase() ?? null,
+        assetClass: input.assetClass ?? InstrumentAssetClass.EQUITY,
+        priceSource: InstrumentPriceSource.MANUAL,
+        // los benchmarks se refrescan siempre, tenga o no posiciones el usuario
+        needsDailyPrice: input.benchmarkKey != null,
+      }));
     });
-    return this.instrumentsRepository.save(instrument);
   }
 
   async update(input: UpdateInstrumentInput): Promise<Instrument> {

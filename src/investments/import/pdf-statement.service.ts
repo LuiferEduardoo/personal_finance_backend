@@ -193,6 +193,7 @@ export class PdfStatementService {
       occurredOn: row.occurredOn,
       occurredAt: null,
       symbol: row.symbol,
+      sector: null,
       isin: row.isin,
       instrumentId: null,
       // el instrumento lo resuelve ImportService con el mismo caché que el
