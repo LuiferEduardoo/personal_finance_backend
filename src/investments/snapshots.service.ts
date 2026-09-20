@@ -180,11 +180,12 @@ export class SnapshotsService {
         estimated = estimated || rate.estimated;
       }
 
+      // El saldo ya trae su valor en base, acumulado movimiento a movimiento
+      // con la tasa congelada de cada uno. No se revalora con la tasa del día:
+      // eso convertía la diferencia de cambio en efectivo inventado.
       let cash = 0;
       for (const balance of current.cash) {
-        const rate = this.rateFor(fx, balance.currency, date, baseCurrency);
-        cash = addMoney(cash, balance.amount * rate.value);
-        estimated = estimated || rate.estimated;
+        cash = addMoney(cash, balance.amountBase);
       }
 
       const netFlow = activeToday ? current.netFlowBase : 0;

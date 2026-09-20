@@ -159,7 +159,7 @@ export class PortfolioAnalyticsService {
     const baseCurrency = await this.baseCurrency(userId);
     const views = await this.positions(userId, { asOf });
     const totals = await this.flowTotals(userId, asOf);
-    const cash = await this.cashInBase(userId, asOf);
+    const cash = await this.cashInBase(userId);
 
     const priced = views.filter((view) => !view.priceMissing);
     const marketValuePositions = priced.reduce(
@@ -292,9 +292,11 @@ export class PortfolioAnalyticsService {
   // --- agregados desde el libro ---
 
   private async flowTotals(userId: string, asOf: string): Promise<FlowTotals> {
-    const rows: Array<Record<keyof Omit<FlowTotals, 'realized'>, string> & {
-      currency: string;
-    }> = await this.transactionsRepository.query(
+    const rows: Array<
+      Record<keyof Omit<FlowTotals, 'realized'>, string> & {
+        currency: string;
+      }
+    > = await this.transactionsRepository.query(
       `
         SELECT
           "currency",
@@ -331,7 +333,14 @@ export class PortfolioAnalyticsService {
         sum.taxes += Number(row.taxes) * rate;
         return sum;
       },
-      { contributions: 0, withdrawals: 0, dividends: 0, interest: 0, fees: 0, taxes: 0 },
+      {
+        contributions: 0,
+        withdrawals: 0,
+        dividends: 0,
+        interest: 0,
+        fees: 0,
+        taxes: 0,
+      },
     );
 
     const [realized] = await this.transactionsRepository.query(
@@ -354,24 +363,24 @@ export class PortfolioAnalyticsService {
     };
   }
 
-  private async cashInBase(userId: string, asOf: string): Promise<number> {
-    const rows: { currency: string; amount: string }[] =
+  // El efectivo ya viene convertido con la tasa congelada de cada movimiento.
+  //
+  // Antes se sumaba por moneda y se multiplicaba el NETO por una sola tasa, la
+  // TRM del día para el par COP/USD. Un saldo formado a tasas distintas no se
+  // puede revalorar así: tres compras financiadas por sus depósitos dejaban
+  // 7,09 USD de efectivo que nunca existió.
+  private async cashInBase(userId: string): Promise<number> {
+    const [row]: [{ amount_base: string | null }] =
       await this.cashRepository.query(
         `
-          SELECT c."currency", SUM(c."amount") AS amount
+          SELECT SUM(c."amount_base") AS amount_base
           FROM "investment_cash_balances" c
           JOIN "investment_accounts" a ON a."id" = c."account_id"
           WHERE a."user_id" = $1
-          GROUP BY c."currency"
         `,
         [userId],
       );
-    const fx = await this.fxRates(userId, asOf);
-    return rows.reduce(
-      (sum, row) =>
-        roundMoney(sum + Number(row.amount) * (fx.get(row.currency) ?? 1)),
-      0,
-    );
+    return roundMoney(Number(row?.amount_base ?? 0));
   }
 
   // Tasa de cambio de cada moneda hacia la moneda base del usuario, a la
@@ -395,7 +404,7 @@ export class PortfolioAnalyticsService {
           ORDER BY "currency", "occurred_on" DESC, "created_at" DESC
         `,
         [userId],
-    );
+      );
 
     const map = new Map<string, number>();
     let latestTrm: number | null = null;
@@ -569,9 +578,13 @@ export class PortfolioAnalyticsService {
     from: string,
     to: string,
   ): Promise<CashFlow[]> {
-    const rows: { occurred_on: string; type: string; currency: string; amount: string }[] =
-      await this.transactionsRepository.query(
-        `
+    const rows: {
+      occurred_on: string;
+      type: string;
+      currency: string;
+      amount: string;
+    }[] = await this.transactionsRepository.query(
+      `
           SELECT "occurred_on", "type", "currency", SUM("amount") AS amount
           FROM "investment_transactions"
           WHERE "user_id" = $1
@@ -580,8 +593,8 @@ export class PortfolioAnalyticsService {
           GROUP BY "occurred_on", "type", "currency"
           ORDER BY "occurred_on" ASC
         `,
-        [userId, from, to, EXTERNAL_FLOW_TYPES],
-      );
+      [userId, from, to, EXTERNAL_FLOW_TYPES],
+    );
     const fx = await this.fxRates(userId, to);
 
     return rows.map((row) => {

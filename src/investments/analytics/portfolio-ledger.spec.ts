@@ -687,3 +687,76 @@ describe('portfolio-ledger: checkpoints diarios', () => {
     );
   });
 });
+
+// Caso real de Binance con moneda base COP: cada depósito en pesos financia
+// exactamente un Convert a la TRM de ese momento, así que el efectivo tiene
+// que quedar en cero. Valorar el saldo NETO con una sola tasa (la TRM de hoy)
+// dejaba 7,09 USD de efectivo que nunca existió.
+describe('efectivo en moneda base con tasas distintas', () => {
+  const CONVERTS = [
+    { cop: 50_000, trm: 3_744.04 },
+    { cop: 27_000, trm: 3_751.54 },
+    { cop: 92_500, trm: 3_635.13 },
+  ];
+
+  const ledger = () =>
+    replay(
+      CONVERTS.flatMap(({ cop, trm }, index) => {
+        const usd = cop / trm;
+        const day = `2026-02-0${index + 1}`;
+        return [
+          // Depósito en pesos: la base es COP, así que su tasa es 1.
+          event({
+            type: InvestmentTransactionType.DEPOSIT,
+            instrumentId: null,
+            currency: 'COP',
+            fxRate: 1,
+            amount: cop,
+            occurredOn: day,
+          }),
+          // Convert a BTC: la operación va en USD con la TRM del momento.
+          buy(usd, 1, day, { currency: 'USD', fxRate: trm }),
+        ];
+      }),
+    );
+
+  it('deja el efectivo en cero cuando cada depósito financia su compra', () => {
+    const balances = ledger().cash;
+    // Que las dos piernas se hayan acumulado de verdad: sin esto, un saldo que
+    // nunca acumula nada también sumaría cero y el test pasaría en vacío.
+    expect(balances).toHaveLength(2);
+    for (const balance of balances) {
+      expect(Math.abs(balance.amountBase)).toBeGreaterThan(100_000);
+    }
+    const totalBase = balances.reduce(
+      (sum, balance) => sum + balance.amountBase,
+      0,
+    );
+    // Menos de un centavo de peso. Lo que queda es el redondeo a 6 decimales
+    // que money.ts documenta (~1e-9 relativo), no efectivo: el bug dejaba
+    // 22.632,91 COP, siete órdenes de magnitud por encima.
+    expect(Math.abs(totalBase)).toBeLessThan(0.01);
+  });
+
+  it('conserva los saldos por moneda sin convertir', () => {
+    const byCurrency = new Map(
+      ledger().cash.map((balance) => [balance.currency, balance]),
+    );
+    expect(byCurrency.get('COP')?.amount).toBeCloseTo(169_500, 6);
+    expect(byCurrency.get('USD')?.amount).toBeCloseTo(-45.99773519, 6);
+    // Cada pierna lleva su propio valor en base, opuesto y del mismo tamaño.
+    expect(byCurrency.get('COP')?.amountBase).toBeCloseTo(169_500, 4);
+    expect(byCurrency.get('USD')?.amountBase).toBeCloseTo(-169_500, 2);
+  });
+
+  it('revalorar el neto con una sola tasa inventa los 7,09 USD', () => {
+    const LATEST_TRM = 3_192.92;
+    const byCurrency = new Map(
+      ledger().cash.map((balance) => [balance.currency, balance]),
+    );
+    const wrong =
+      (byCurrency.get('COP')?.amount ?? 0) +
+      (byCurrency.get('USD')?.amount ?? 0) * LATEST_TRM;
+    expect(wrong / LATEST_TRM).toBeCloseTo(7.0885, 3);
+  });
+});

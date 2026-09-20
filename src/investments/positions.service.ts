@@ -291,6 +291,7 @@ export class PositionsService {
           accountId: balance.accountId,
           currency: balance.currency,
           amount: balance.amount,
+          amountBase: balance.amountBase,
         })),
       );
     }

@@ -103,6 +103,14 @@ export interface LedgerCash {
   accountId: string;
   currency: string;
   amount: number;
+  // Valor en moneda base acumulado con la tasa CONGELADA de cada movimiento.
+  //
+  // No se puede reconstruir después multiplicando `amount` por una tasa: el
+  // saldo es el neto de movimientos hechos a tasas distintas, y aplicarle una
+  // sola tasa inventa efectivo. Un depósito de 169.500 COP que financia tres
+  // compras a sus TRM reales debe dejar saldo 0; revalorando el neto con la
+  // TRM de hoy dejaba 7,09 USD que nunca existieron.
+  amountBase: number;
 }
 
 // flujo EXTERNO diario en moneda base: entra al denominador del TWR y a la
@@ -353,7 +361,13 @@ function applyBuy(ctx: ReplayContext, event: LedgerEvent): void {
     estimated: false,
   });
 
-  adjustCash(ctx, event.accountId, event.currency, -totalCost);
+  adjustCash(
+    ctx,
+    event.accountId,
+    event.currency,
+    -totalCost,
+    -toBase(totalCost, event.fxRate),
+  );
 }
 
 // --- SELL / TRANSFER_OUT: consumo FIFO ---
@@ -461,7 +475,13 @@ function applyDisposal(
   }
 
   if (isSale) {
-    adjustCash(ctx, event.accountId, event.currency, proceedsNet);
+    adjustCash(
+      ctx,
+      event.accountId,
+      event.currency,
+      proceedsNet,
+      toBase(proceedsNet, event.fxRate),
+    );
   } else {
     registerFlow(ctx, event, -roundMoney(quantity * averageOpenCost(lots)));
   }
@@ -471,8 +491,8 @@ function applyDisposal(
 
 function applyIncome(ctx: ReplayContext, event: LedgerEvent): void {
   const net = roundMoney(event.amount - event.tax - event.fee);
-  adjustCash(ctx, event.accountId, event.currency, net);
   const netBase = toBase(net, event.fxRate);
+  adjustCash(ctx, event.accountId, event.currency, net, netBase);
   if (event.type === InvestmentTransactionType.DIVIDEND) {
     ctx.income.dividendsBase = addMoney(ctx.income.dividendsBase, netBase);
   } else {
@@ -495,15 +515,15 @@ function applyIncome(ctx: ReplayContext, event: LedgerEvent): void {
 // --- DEPOSIT / WITHDRAWAL: los únicos flujos externos puros ---
 
 function applyDeposit(ctx: ReplayContext, event: LedgerEvent): void {
-  adjustCash(ctx, event.accountId, event.currency, event.amount);
   const base = toBase(event.amount, event.fxRate);
+  adjustCash(ctx, event.accountId, event.currency, event.amount, base);
   ctx.contributionsBase = addMoney(ctx.contributionsBase, base);
   registerFlow(ctx, event, base);
 }
 
 function applyWithdrawal(ctx: ReplayContext, event: LedgerEvent): void {
-  adjustCash(ctx, event.accountId, event.currency, -event.amount);
   const base = toBase(event.amount, event.fxRate);
+  adjustCash(ctx, event.accountId, event.currency, -event.amount, -base);
   ctx.withdrawalsBase = addMoney(ctx.withdrawalsBase, base);
   registerFlow(ctx, event, -base);
 }
@@ -515,8 +535,8 @@ function applyWithdrawal(ctx: ReplayContext, event: LedgerEvent): void {
 // el TWR y el XIRR los ven como caída de valor, no como flujo externo.
 
 function applyCharge(ctx: ReplayContext, event: LedgerEvent): void {
-  adjustCash(ctx, event.accountId, event.currency, -event.amount);
   const base = toBase(event.amount, event.fxRate);
+  adjustCash(ctx, event.accountId, event.currency, -event.amount, -base);
   if (event.type === InvestmentTransactionType.FEE) {
     ctx.income.feesBase = addMoney(ctx.income.feesBase, base);
   } else {
@@ -604,17 +624,25 @@ function applyCurrencyExchange(ctx: ReplayContext, event: LedgerEvent): void {
       `El cambio de divisa del ${event.occurredOn} necesita moneda e importe de liquidación`,
     );
   }
+  const outgoing = roundMoney(event.amount + event.fee + event.tax);
+  // Cambiar de moneda no crea ni destruye valor en base: la pierna recibida
+  // entra con el valor base de la que sale, y solo los costos se pierden. Su
+  // propia tasa se derivaría de `settlementAmount`, pero eso convertiría la
+  // diferencia cambiaria en efectivo fantasma.
+  const exchangedBase = toBase(event.amount, event.fxRate);
   adjustCash(
     ctx,
     event.accountId,
     event.currency,
-    -roundMoney(event.amount + event.fee + event.tax),
+    -outgoing,
+    -toBase(outgoing, event.fxRate),
   );
   adjustCash(
     ctx,
     event.accountId,
     event.settlementCurrency,
     event.settlementAmount,
+    exchangedBase,
   );
 }
 
@@ -667,13 +695,20 @@ function adjustCash(
   accountId: string,
   currency: string,
   delta: number,
+  deltaBase: number,
 ): void {
-  if (!delta) {
+  if (!delta && !deltaBase) {
     return;
   }
   const mapKey = cashKey(accountId, currency);
-  const current = ctx.cash.get(mapKey) ?? { accountId, currency, amount: 0 };
+  const current = ctx.cash.get(mapKey) ?? {
+    accountId,
+    currency,
+    amount: 0,
+    amountBase: 0,
+  };
   current.amount = addMoney(current.amount, delta);
+  current.amountBase = addMoney(current.amountBase, deltaBase);
   ctx.cash.set(mapKey, current);
 }
 
