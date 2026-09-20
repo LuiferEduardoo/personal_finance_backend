@@ -27,18 +27,4 @@ export class InvestmentCashBalance {
     transformer: new NumericTransformer(),
   })
   amount: number;
-
-  // Valor del saldo en la moneda base, acumulado con la tasa congelada de cada
-  // movimiento. Convertir `amount` a posteriori con una sola tasa inventa
-  // efectivo cuando el saldo se formó a tasas distintas.
-  @Field(() => Float)
-  @Column({
-    name: 'amount_base',
-    type: 'numeric',
-    precision: 20,
-    scale: 6,
-    default: 0,
-    transformer: new NumericTransformer(),
-  })
-  amountBase: number;
 }
