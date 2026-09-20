@@ -487,9 +487,28 @@ export class InvestmentTransactionsService {
       (currency === 'USD' && baseCurrency === 'COP') ||
       (currency === 'COP' && baseCurrency === 'USD')
     ) {
-      const trm = (await this.trmService.latest()).value;
-      fxRate = trmRate(currency, baseCurrency, trm);
-      fxRateSource = FxRateSource.MANUAL;
+      // TrmService raspa la TRM de la Superfinanciera y SOLO conoce la de hoy:
+      // no tiene histórico. Estamparla en una operación con fecha pasada la
+      // congelaba con la tasa equivocada -los depósitos de 2025 quedaron a la
+      // TRM actual, entre un 18% y un 35% por debajo de la de su día- y encima
+      // etiquetada MANUAL, así que resolveMissingFxRates no volvía a tocarlas.
+      //
+      // El caché fx_rates sí tiene serie diaria del par. La TRM oficial queda
+      // solo para el hueco que esa serie no cubre, típicamente hoy mismo.
+      const resolved = await this.fxService.rateForWrite(
+        currency,
+        baseCurrency,
+        input.occurredOn,
+      );
+      fxRate =
+        resolved === 1
+          ? trmRate(
+              currency,
+              baseCurrency,
+              (await this.trmService.latest()).value,
+            )
+          : resolved;
+      fxRateSource = FxRateSource.TWELVE_DATA;
     } else {
       fxRate = await this.fxService.rateForWrite(
         currency,
