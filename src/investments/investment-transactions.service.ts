@@ -278,16 +278,23 @@ export class InvestmentTransactionsService {
   //
   // Hace falta de verdad: una operación en USD guardada con tasa 1 mientras la
   // moneda base es COP deja el flujo externo sin convertir y la cartera sí
-  // convertida, y eso dispara el TWR. Solo toca las filas marcadas como
-  // ASSUMED_ONE: una tasa que el usuario escribió a mano (MANUAL) se respeta.
+  // convertida, y eso dispara el TWR. Una tasa que el usuario escribió a mano
+  // se respeta, con una excepción: 1 entre dos monedas DISTINTAS no es un dato
+  // que nadie elija, es el rastro del formulario antiguo, que enviaba 1 por
+  // defecto y lo dejaba etiquetado MANUAL. Filtrando solo por ASSUMED_ONE esas
+  // filas quedaban sin reparar para siempre, y desde que el efectivo se valora
+  // con la tasa congelada cada peso contaba como un dólar.
   async resolveMissingFxRates(userId: string): Promise<number> {
     const baseCurrency = await this.baseCurrency(userId);
     const pending = await this.transactionsRepository.find({
-      where: {
-        userId,
-        fxRateSource: FxRateSource.ASSUMED_ONE,
-        currency: Not(baseCurrency),
-      },
+      where: [
+        {
+          userId,
+          fxRateSource: FxRateSource.ASSUMED_ONE,
+          currency: Not(baseCurrency),
+        },
+        { userId, fxRate: 1, currency: Not(baseCurrency) },
+      ],
       order: { occurredOn: 'ASC' },
     });
     if (pending.length === 0) {
