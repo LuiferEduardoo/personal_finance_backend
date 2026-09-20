@@ -56,6 +56,7 @@ import { TrmService } from './trm.service';
     MarketDataRateLimiter,
     TwelveDataClient,
     CorporateActionsService,
+    TrmService,
   ],
 })
 export class MarketDataModule {}

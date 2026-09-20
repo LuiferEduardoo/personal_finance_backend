@@ -48,8 +48,8 @@ export class CreateInvestmentTransactionInput {
 
   @Field(() => Float, {
     nullable: true,
-    defaultValue: 1,
-    description: 'Tasa de cambio a la moneda base del usuario',
+    description:
+      'Tasa de cambio a la moneda base del usuario. Si se omite, se calcula automáticamente.',
   })
   fxRate?: number;
 

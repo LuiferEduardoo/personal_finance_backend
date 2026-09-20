@@ -20,6 +20,7 @@ import {
 import { assertCurrency } from '../common/currency';
 import { FxService } from '../market-data/fx.service';
 import { PricesService } from '../market-data/prices.service';
+import { TrmService, trmRate } from '../market-data/trm.service';
 import { User } from '../users/entities/user.entity';
 import {
   INSTRUMENT_REQUIRED_TYPES,
@@ -60,6 +61,7 @@ export class InvestmentTransactionsService {
     private readonly positionsService: PositionsService,
     private readonly pricesService: PricesService,
     private readonly fxService: FxService,
+    private readonly trmService: TrmService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -468,6 +470,13 @@ export class InvestmentTransactionsService {
     } else if (currency === baseCurrency) {
       fxRate = 1;
       fxRateSource = FxRateSource.ASSUMED_ONE;
+    } else if (
+      (currency === 'USD' && baseCurrency === 'COP') ||
+      (currency === 'COP' && baseCurrency === 'USD')
+    ) {
+      const trm = (await this.trmService.latest()).value;
+      fxRate = trmRate(currency, baseCurrency, trm);
+      fxRateSource = FxRateSource.MANUAL;
     } else {
       fxRate = await this.fxService.rateForWrite(
         currency,

@@ -2,6 +2,13 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 
 export type LatestTrm = { value: number; validFrom: string; validTo: string };
 
+export function trmRate(from: string, to: string, trm: number): number {
+  if (from === to) return 1;
+  if (from === 'USD' && to === 'COP') return trm;
+  if (from === 'COP' && to === 'USD') return 1 / trm;
+  throw new Error(`La TRM no soporta la conversión ${from}/${to}`);
+}
+
 @Injectable()
 export class TrmService {
   private cached: { expiresAt: number; quote: LatestTrm } | null = null;

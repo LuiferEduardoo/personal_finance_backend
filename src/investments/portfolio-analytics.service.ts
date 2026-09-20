@@ -7,6 +7,7 @@ import {
 } from '../common/enums/investment-transaction-type.enum';
 import { toDateString } from '../common/date';
 import { FxService } from '../market-data/fx.service';
+import { TrmService, trmRate } from '../market-data/trm.service';
 import { Instrument } from '../market-data/entities/instrument.entity';
 import { InstrumentsService } from '../market-data/instruments.service';
 import { User } from '../users/entities/user.entity';
@@ -56,6 +57,7 @@ export class PortfolioAnalyticsService {
     private readonly usersRepository: Repository<User>,
     private readonly instrumentsService: InstrumentsService,
     private readonly fxService: FxService,
+    private readonly trmService: TrmService,
     private readonly snapshotsService: SnapshotsService,
   ) {}
 
@@ -290,17 +292,21 @@ export class PortfolioAnalyticsService {
   // --- agregados desde el libro ---
 
   private async flowTotals(userId: string, asOf: string): Promise<FlowTotals> {
-    const [row] = await this.transactionsRepository.query(
+    const rows: Array<Record<keyof Omit<FlowTotals, 'realized'>, string> & {
+      currency: string;
+    }> = await this.transactionsRepository.query(
       `
         SELECT
-          COALESCE(SUM(CASE WHEN "type" = $3 THEN "amount" * "fx_rate" END), 0) AS contributions,
-          COALESCE(SUM(CASE WHEN "type" = $4 THEN "amount" * "fx_rate" END), 0) AS withdrawals,
-          COALESCE(SUM(CASE WHEN "type" = $5 THEN ("amount" - "tax" - "fee") * "fx_rate" END), 0) AS dividends,
-          COALESCE(SUM(CASE WHEN "type" = $6 THEN ("amount" - "tax" - "fee") * "fx_rate" END), 0) AS interest,
-          COALESCE(SUM(CASE WHEN "type" = $7 THEN "amount" * "fx_rate" ELSE "fee" * "fx_rate" END), 0) AS fees,
-          COALESCE(SUM(CASE WHEN "type" = $8 THEN "amount" * "fx_rate" ELSE "tax" * "fx_rate" END), 0) AS taxes
+          "currency",
+          COALESCE(SUM(CASE WHEN "type" = $3 THEN "amount" END), 0) AS contributions,
+          COALESCE(SUM(CASE WHEN "type" = $4 THEN "amount" END), 0) AS withdrawals,
+          COALESCE(SUM(CASE WHEN "type" = $5 THEN "amount" - "tax" - "fee" END), 0) AS dividends,
+          COALESCE(SUM(CASE WHEN "type" = $6 THEN "amount" - "tax" - "fee" END), 0) AS interest,
+          COALESCE(SUM(CASE WHEN "type" = $7 THEN "amount" ELSE "fee" END), 0) AS fees,
+          COALESCE(SUM(CASE WHEN "type" = $8 THEN "amount" ELSE "tax" END), 0) AS taxes
         FROM "investment_transactions"
         WHERE "user_id" = $1 AND "occurred_on" <= $2::date
+        GROUP BY "currency"
       `,
       [
         userId,
@@ -313,6 +319,20 @@ export class PortfolioAnalyticsService {
         InvestmentTransactionType.TAX,
       ],
     );
+    const fx = await this.fxRates(userId, asOf);
+    const totals = rows.reduce(
+      (sum, row) => {
+        const rate = fx.get(row.currency) ?? 1;
+        sum.contributions += Number(row.contributions) * rate;
+        sum.withdrawals += Number(row.withdrawals) * rate;
+        sum.dividends += Number(row.dividends) * rate;
+        sum.interest += Number(row.interest) * rate;
+        sum.fees += Number(row.fees) * rate;
+        sum.taxes += Number(row.taxes) * rate;
+        return sum;
+      },
+      { contributions: 0, withdrawals: 0, dividends: 0, interest: 0, fees: 0, taxes: 0 },
+    );
 
     const [realized] = await this.transactionsRepository.query(
       `
@@ -324,12 +344,12 @@ export class PortfolioAnalyticsService {
     );
 
     return {
-      contributions: Number(row.contributions),
-      withdrawals: Number(row.withdrawals),
-      dividends: Number(row.dividends),
-      interest: Number(row.interest),
-      fees: Number(row.fees),
-      taxes: Number(row.taxes),
+      contributions: roundMoney(totals.contributions),
+      withdrawals: roundMoney(totals.withdrawals),
+      dividends: roundMoney(totals.dividends),
+      interest: roundMoney(totals.interest),
+      fees: roundMoney(totals.fees),
+      taxes: roundMoney(totals.taxes),
       realized: Number(realized.realized),
     };
   }
@@ -375,10 +395,22 @@ export class PortfolioAnalyticsService {
           ORDER BY "currency", "occurred_on" DESC, "created_at" DESC
         `,
         [userId],
-      );
+    );
 
     const map = new Map<string, number>();
+    let latestTrm: number | null = null;
+    const officialRate = async (currency: string): Promise<number> => {
+      latestTrm ??= (await this.trmService.latest()).value;
+      return trmRate(currency, baseCurrency, latestTrm);
+    };
     for (const row of rows) {
+      if (
+        (row.currency === 'USD' && baseCurrency === 'COP') ||
+        (row.currency === 'COP' && baseCurrency === 'USD')
+      ) {
+        map.set(row.currency, await officialRate(row.currency));
+        continue;
+      }
       const cached = await this.fxService.rateOn(
         row.currency,
         baseCurrency,
@@ -399,6 +431,13 @@ export class PortfolioAnalyticsService {
     );
     for (const row of extra) {
       if (map.has(row.currency)) {
+        continue;
+      }
+      if (
+        (row.currency === 'USD' && baseCurrency === 'COP') ||
+        (row.currency === 'COP' && baseCurrency === 'USD')
+      ) {
+        map.set(row.currency, await officialRate(row.currency));
         continue;
       }
       const cached = await this.fxService.rateOn(
@@ -528,19 +567,20 @@ export class PortfolioAnalyticsService {
     from: string,
     to: string,
   ): Promise<CashFlow[]> {
-    const rows: { occurred_on: string; type: string; amount: string }[] =
+    const rows: { occurred_on: string; type: string; currency: string; amount: string }[] =
       await this.transactionsRepository.query(
         `
-          SELECT "occurred_on", "type", SUM("amount" * "fx_rate") AS amount
+          SELECT "occurred_on", "type", "currency", SUM("amount") AS amount
           FROM "investment_transactions"
           WHERE "user_id" = $1
             AND "occurred_on" BETWEEN $2::date AND $3::date
             AND "type" = ANY($4)
-          GROUP BY "occurred_on", "type"
+          GROUP BY "occurred_on", "type", "currency"
           ORDER BY "occurred_on" ASC
         `,
         [userId, from, to, EXTERNAL_FLOW_TYPES],
       );
+    const fx = await this.fxRates(userId, to);
 
     return rows.map((row) => {
       const inflow =
@@ -548,7 +588,9 @@ export class PortfolioAnalyticsService {
         row.type === InvestmentTransactionType.TRANSFER_IN;
       return {
         date: toDateString(row.occurred_on)!,
-        amount: inflow ? -Number(row.amount) : Number(row.amount),
+        amount:
+          (inflow ? -Number(row.amount) : Number(row.amount)) *
+          (fx.get(row.currency) ?? 1),
       };
     });
   }
