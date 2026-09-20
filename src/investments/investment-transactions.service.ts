@@ -182,8 +182,10 @@ export class InvestmentTransactionsService {
     input: UpdateInvestmentTransactionInput,
   ): Promise<InvestmentTransaction> {
     const existing = await this.findOne(input.id, userId);
+    const accountId = input.accountId ?? existing.accountId;
+    await this.accountsService.assertOwned(accountId, userId);
     const merged = await this.normalize(userId, {
-      accountId: existing.accountId,
+      accountId,
       type: existing.type,
       instrumentId: existing.instrumentId ?? undefined,
       occurredOn: input.occurredOn ?? existing.occurredOn,
@@ -210,9 +212,13 @@ export class InvestmentTransactionsService {
 
     // cualquier edición es retroactiva por definición: el ámbito se reconstruye
     // entero, nunca de forma incremental
-    await this.runWrite(userId, [existing.accountId], async (manager) => {
-      await manager.update(InvestmentTransaction, { id: input.id }, merged);
-    });
+    await this.runWrite(
+      userId,
+      [...new Set([existing.accountId, accountId])],
+      async (manager) => {
+        await manager.update(InvestmentTransaction, { id: input.id }, merged);
+      },
+    );
     return this.findOne(input.id, userId);
   }
 

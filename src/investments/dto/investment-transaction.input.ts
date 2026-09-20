@@ -95,6 +95,9 @@ export class UpdateInvestmentTransactionInput {
   @Field(() => ID)
   id: string;
 
+  @Field(() => ID, { nullable: true })
+  accountId?: string;
+
   @Field({ nullable: true })
   occurredOn?: string;
 
