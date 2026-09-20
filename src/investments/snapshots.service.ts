@@ -37,6 +37,7 @@ interface PriceCell {
 @Injectable()
 export class SnapshotsService {
   private readonly logger = new Logger(SnapshotsService.name);
+  private readonly activeBuilds = new Map<string, Promise<void>>();
 
   constructor(
     @InjectRepository(PortfolioSnapshot)
@@ -69,9 +70,25 @@ export class SnapshotsService {
         this.logger.error(
           `No se pudieron construir snapshots de ${id}: ${(error as Error).message}`,
         );
+        if (userId) {
+          throw error;
+        }
       }
     }
     return report;
+  }
+
+  async ensureCurrent(userId: string): Promise<void> {
+    if (!(await this.isStale(userId))) return;
+
+    const active = this.activeBuilds.get(userId);
+    if (active) return active;
+
+    const build = this.buildSnapshots(today(), userId)
+      .then(() => undefined)
+      .finally(() => this.activeBuilds.delete(userId));
+    this.activeBuilds.set(userId, build);
+    return build;
   }
 
   // Reconstruye TODA la serie del usuario. Es idempotente: borra y reescribe

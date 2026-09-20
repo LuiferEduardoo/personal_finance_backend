@@ -457,6 +457,7 @@ export class PortfolioAnalyticsService {
     from?: string,
     to?: string,
   ): Promise<PortfolioEvolution> {
+    await this.snapshotsService.ensureCurrent(userId);
     const baseCurrency = await this.baseCurrency(userId);
     const snapshots = await this.snapshotsService.findSeries(userId, from, to);
     return {
@@ -491,6 +492,7 @@ export class PortfolioAnalyticsService {
     from?: string,
     to?: string,
   ): Promise<PortfolioReturns> {
+    await this.snapshotsService.ensureCurrent(userId);
     const baseCurrency = await this.baseCurrency(userId);
     const snapshots = await this.snapshotsService.findSeries(userId, from, to);
     const isStale = await this.snapshotsService.isStale(userId);
