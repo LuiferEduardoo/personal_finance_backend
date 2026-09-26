@@ -1,12 +1,15 @@
 import {
+  Inject,
   Injectable,
   InternalServerErrorException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
-// Cifrado simétrico para credenciales de bróker.
+// Cifrado simétrico para credenciales que hay que poder recuperar: las de
+// bróker y el refresh token de Gmail.
 //
 // El repo solo tenía hash de una vía (createHash) para API keys y refresh
 // tokens; eso sirve para verificar algo que el usuario reenvía, no para
@@ -22,6 +25,23 @@ const IV_BYTES = 12; // recomendado para GCM
 export const CURRENT_KEY_VERSION = 1;
 export const PREVIOUS_KEY_VERSION = 0;
 
+// Cada dominio usa SU propia clave: una fuga de la clave del correo no abre
+// las credenciales de trading, y viceversa. Sin opciones se usa la de
+// inversiones, que es la configuración histórica.
+export interface SecretBoxOptions {
+  // variable de entorno con la clave actual; la anterior es `${keyEnv}_PREVIOUS`
+  keyEnv: string;
+  // qué protege, para los mensajes de error
+  label: string;
+}
+
+export const SECRET_BOX_OPTIONS = Symbol('SECRET_BOX_OPTIONS');
+
+const DEFAULT_OPTIONS: SecretBoxOptions = {
+  keyEnv: 'INVESTMENTS_ENCRYPTION_KEY',
+  label: 'las conexiones con brókers',
+};
+
 export interface SealedSecret {
   ciphertext: Buffer;
   iv: Buffer;
@@ -31,12 +51,17 @@ export interface SealedSecret {
 
 @Injectable()
 export class SecretBox {
-  constructor(private readonly configService: ConfigService) {}
+  private readonly options: SecretBoxOptions;
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() @Inject(SECRET_BOX_OPTIONS) options?: SecretBoxOptions,
+  ) {
+    this.options = options ?? DEFAULT_OPTIONS;
+  }
 
   get configured(): boolean {
-    return Boolean(
-      this.configService.get<string>('INVESTMENTS_ENCRYPTION_KEY'),
-    );
+    return Boolean(this.configService.get<string>(this.options.keyEnv));
   }
 
   // Cifra y devuelve las tres piezas por separado, para guardarlas en columnas
@@ -69,9 +94,9 @@ export class SecretBox {
   // Prueba con la clave actual y, si falla, con la anterior.
   //
   // Ese respaldo ES la rotación: el administrador pone la clave vieja en
-  // INVESTMENTS_ENCRYPTION_KEY_PREVIOUS y la nueva en la actual, las filas
-  // viejas siguen abriéndose, y `rotateBrokerCredentials` las vuelve a sellar
-  // con la nueva sin cortar el servicio.
+  // <CLAVE>_PREVIOUS y la nueva en la actual, las filas viejas siguen
+  // abriéndose, y la rotación las vuelve a sellar con la nueva sin cortar el
+  // servicio.
   open(sealed: SealedSecret, connectionId: string): string {
     const attempt = (key: Buffer): string => {
       const decipher = createDecipheriv(ALGORITHM, key, sealed.iv);
@@ -101,8 +126,8 @@ export class SecretBox {
     // etiqueta inválida: o se manipuló la fila, o se movió de sitio, o ninguna
     // de las claves configuradas es la que cifró
     throw new InternalServerErrorException(
-      'No se pudieron descifrar las credenciales del bróker. ' +
-        'Comprueba INVESTMENTS_ENCRYPTION_KEY o vuelve a guardarlas.',
+      `No se pudieron descifrar las credenciales de ${this.options.label}. ` +
+        `Comprueba ${this.options.keyEnv} o vuelve a guardarlas.`,
     );
   }
 
@@ -121,17 +146,17 @@ export class SecretBox {
   }
 
   // La clave se valida en el PRIMER USO, no al arrancar, igual que el cliente
-  // de OpenAI: levantar el backend sin conexiones de bróker configuradas tiene
-  // que seguir funcionando.
+  // de OpenAI: levantar el backend sin esas conexiones configuradas tiene que
+  // seguir funcionando.
   private getKey(version: number): Buffer {
     const variable =
       version === CURRENT_KEY_VERSION
-        ? 'INVESTMENTS_ENCRYPTION_KEY'
-        : 'INVESTMENTS_ENCRYPTION_KEY_PREVIOUS';
+        ? this.options.keyEnv
+        : `${this.options.keyEnv}_PREVIOUS`;
     const raw = this.configService.get<string>(variable);
     if (!raw) {
       throw new ServiceUnavailableException(
-        `Las conexiones con brókers no están configuradas (falta ${variable})`,
+        `${capitalize(this.options.label)} no están configuradas (falta ${variable})`,
       );
     }
     // Exactamente 64 hex. NADA de derivar la clave de una frase con
@@ -157,4 +182,8 @@ export class SecretBox {
   private aad(connectionId: string): Buffer {
     return Buffer.from(connectionId, 'utf8');
   }
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

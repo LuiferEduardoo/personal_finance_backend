@@ -123,4 +123,19 @@ describe('SecretBox: claves', () => {
       CURRENT_KEY_VERSION,
     );
   });
+
+  it('con opciones propias lee OTRA variable, aislada de la de inversiones', () => {
+    const mail = new SecretBox(
+      {
+        get: (name: string) =>
+          name === 'MAIL_ENCRYPTION_KEY' ? KEY : undefined,
+      } as unknown as ConfigService,
+      { keyEnv: 'MAIL_ENCRYPTION_KEY', label: 'las conexiones de correo' },
+    );
+    expect(mail.open(mail.seal('token', CONNECTION), CONNECTION)).toBe('token');
+    // la caja por defecto no ve la clave del correo
+    expect(() => box().seal('x', CONNECTION)).toThrow(
+      /INVESTMENTS_ENCRYPTION_KEY/,
+    );
+  });
 });
