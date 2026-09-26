@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ArticlesModule } from '../articles/articles.module';
+import { CategoriesModule } from '../categories/categories.module';
+import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
+import { TransactionsModule } from '../transactions/transactions.module';
 import { SecretBox } from '../common/crypto/secret-box';
 import { MailConnection } from './entities/mail-connection.entity';
 import { MailInvoice } from './entities/mail-invoice.entity';
@@ -13,6 +17,12 @@ import {
   MailConnectionsService,
 } from './mail-connections.service';
 import { MailConnectionsResolver } from './mail-connections.resolver';
+import { MailCron } from './mail.cron';
+import { MailIngestionService } from './mail-ingestion.service';
+import { MailMessagesResolver } from './mail-messages.resolver';
+import { MailSendersResolver } from './mail-senders.resolver';
+import { MailSendersService } from './mail-senders.service';
+import { MailSyncService } from './mail-sync.service';
 
 @Module({
   imports: [
@@ -22,6 +32,10 @@ import { MailConnectionsResolver } from './mail-connections.resolver';
       MailMessage,
       MailInvoice,
     ]),
+    ArticlesModule,
+    CategoriesModule,
+    PaymentMethodsModule,
+    TransactionsModule,
   ],
   providers: [
     // caja con SU clave: una fuga de la del correo no abre las de trading
@@ -37,6 +51,12 @@ import { MailConnectionsResolver } from './mail-connections.resolver';
     GmailClientService,
     MailConnectionsService,
     MailConnectionsResolver,
+    MailSendersService,
+    MailSendersResolver,
+    MailIngestionService,
+    MailMessagesResolver,
+    MailSyncService,
+    MailCron,
   ],
   controllers: [GmailController],
 })

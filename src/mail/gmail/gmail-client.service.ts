@@ -233,6 +233,26 @@ export class GmailClientService {
     return attachments;
   }
 
+  // Autentica una notificación push: Pub/Sub la firma con un token OIDC de
+  // Google emitido para NUESTRA audiencia y NUESTRA cuenta de servicio. Sin
+  // esto, cualquiera podría disparar sincronizaciones a voluntad.
+  async verifyPushToken(idToken: string): Promise<boolean> {
+    const audience = this.required('GMAIL_PUSH_AUDIENCE');
+    const serviceAccount = this.required('GMAIL_PUSH_SERVICE_ACCOUNT');
+    try {
+      const ticket = await new auth.OAuth2().verifyIdToken({
+        idToken,
+        audience,
+      });
+      const payload = ticket.getPayload();
+      return (
+        payload?.email === serviceAccount && payload.email_verified === true
+      );
+    } catch {
+      return false;
+    }
+  }
+
   // Cliente OAuth nuevo por uso: guarda las credenciales en memoria y no debe
   // compartirse entre buzones.
   oauthClient() {
