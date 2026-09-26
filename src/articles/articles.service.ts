@@ -4,10 +4,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { ILike, QueryFailedError, Repository } from 'typeorm';
 import { CreateArticleInput } from './dto/create-article.input';
 import { UpdateArticleInput } from './dto/update-article.input';
 import { Article, ArticleType } from './entities/article.entity';
+
+const UNIQUE_VIOLATION = '23505';
+
+// artículo descrito por una fuente externa (p. ej. la línea de una factura
+// electrónica), sin id del catálogo
+export interface ExternalArticleInput {
+  name: string;
+  type: ArticleType;
+  barcode?: string | null;
+}
 
 @Injectable()
 export class ArticlesService {
@@ -92,4 +102,80 @@ export class ArticlesService {
     }
     throw new BadRequestException('Falta articleId o newArticle');
   }
+
+  // Para importaciones automáticas (facturas del correo): reutiliza el
+  // artículo si ya existe y solo lo crea si no. Primero por código de barras,
+  // que identifica el producto aunque cambie la descripción; luego por nombre
+  // exacto sin distinguir mayúsculas. Sin esto, la segunda factura con el
+  // mismo artículo chocaría con articles_name_unique.
+  async findOrCreateByName(
+    userId: string,
+    input: ExternalArticleInput,
+  ): Promise<Article> {
+    const name = input.name.trim();
+    const barcode = input.barcode?.trim() || null;
+
+    const existing = await this.findByBarcodeOrName(
+      userId,
+      name,
+      input.type,
+      barcode,
+    );
+    if (existing) {
+      return existing;
+    }
+
+    try {
+      return await this.articlesRepository.save(
+        this.articlesRepository.create({
+          userId,
+          name,
+          type: input.type,
+          barcode,
+        }),
+      );
+    } catch (error) {
+      // otra ingesta concurrente lo creó entre la búsqueda y el insert
+      if (
+        error instanceof QueryFailedError &&
+        (error.driverError as { code?: string })?.code === UNIQUE_VIOLATION
+      ) {
+        const created = await this.findByBarcodeOrName(
+          userId,
+          name,
+          input.type,
+          barcode,
+        );
+        if (created) {
+          return created;
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async findByBarcodeOrName(
+    userId: string,
+    name: string,
+    type: ArticleType,
+    barcode: string | null,
+  ): Promise<Article | null> {
+    if (barcode) {
+      const byBarcode = await this.articlesRepository.findOne({
+        where: { userId, barcode },
+      });
+      if (byBarcode) {
+        return byBarcode;
+      }
+    }
+    // ILike sin comodines = igualdad sin mayúsculas; se escapan los que traiga
+    // el propio nombre para que "50% OFF" no se lea como patrón
+    return this.articlesRepository.findOne({
+      where: { userId, type, name: ILike(escapeLike(name)) },
+    });
+  }
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
