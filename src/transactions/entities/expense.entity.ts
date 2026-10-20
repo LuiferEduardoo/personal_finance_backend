@@ -61,17 +61,21 @@ export class Expense {
   @Column({ name: 'payment_method_id', type: 'uuid', nullable: true })
   paymentMethodId: string | null;
 
+  @Field(() => InstallmentPlan, { nullable: true })
   @ManyToOne(() => InstallmentPlan, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'plan_id' })
   plan: InstallmentPlan | null;
 
+  @Field(() => ID, { nullable: true })
   @Column({ name: 'plan_id', type: 'uuid', nullable: true })
   planId: string | null;
 
+  @Field(() => Installment, { nullable: true })
   @ManyToOne(() => Installment, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'installment_id' })
   installment: Installment | null;
 
+  @Field(() => ID, { nullable: true })
   @Column({ name: 'installment_id', type: 'uuid', nullable: true })
   installmentId: string | null;
 

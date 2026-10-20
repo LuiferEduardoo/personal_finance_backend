@@ -318,6 +318,27 @@ mutation {
 
 Obligatorios: `userId`, `description`, `occurredOn`, y `amount` **o** al menos un ítem (`BAD_REQUEST` si faltan ambos). El gasto sale de la cuenta indicada en `accountId` (ver [Cuentas](#cuentas)).
 
+Compra a cuotas (la tasa es mensual y decimal: `0.025` equivale a 2.5%):
+
+```graphql
+mutation {
+  createExpense(input: {
+    description: "Portátil"
+    amount: 3000000
+    occurredOn: "2026-10-19"
+    accountId: "<idCuenta>"
+    installmentCount: 6
+    monthlyInterestRate: 0.025
+  }) {
+    id description amount occurredOn
+    installment { sequenceNumber principalAmount interestAmount amount dueDate }
+    plan { installmentCount monthlyRate totalAmount }
+  }
+}
+```
+
+El backend crea un gasto por mes, con descripciones como `Portátil (1/6)`. El importe de cada gasto incluye capital e interés calculado sobre el saldo. La primera cuota usa `occurredOn`; las demás conservan el día cuando existe o se ajustan al último día de los meses cortos. `accountId` es obligatorio para compras de más de una cuota. No se combinan cuotas con `recurrence`.
+
 ### `updateExpense` / `removeExpense`
 
 ```graphql
@@ -326,6 +347,8 @@ mutation { removeExpense(id: "<id>") }
 ```
 
 Enviar `items` en `updateExpense` **reemplaza** todos los ítems y recalcula el importe (no re-dispara el inventario).
+
+Una compra a cuotas no se edita parcialmente. Al eliminar cualquiera de sus gastos se elimina el plan completo y se revierte el saldo de todas las cuotas.
 
 ---
 

@@ -16,6 +16,10 @@ import {
 import { ArticlesService } from '../articles/articles.service';
 import { Article, ArticleType } from '../articles/entities/article.entity';
 import { resolveDiscount } from '../common/discount';
+import { Recurrence } from '../common/enums/recurrence.enum';
+import { calculateInstallments } from '../installments/installment-calculator';
+import { InstallmentPlan } from '../installments/entities/installment-plan.entity';
+import { Installment } from '../installments/entities/installment.entity';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import { PurchasesService } from '../products/purchases.service';
 import { CreateExpenseInput } from './dto/create-expense.input';
@@ -39,6 +43,10 @@ export class ExpensesService {
     private readonly expensesRepository: Repository<Expense>,
     @InjectRepository(ExpenseItem)
     private readonly expenseItemsRepository: Repository<ExpenseItem>,
+    @InjectRepository(InstallmentPlan)
+    private readonly installmentPlansRepository: Repository<InstallmentPlan>,
+    @InjectRepository(Installment)
+    private readonly installmentsRepository: Repository<Installment>,
     private readonly articlesService: ArticlesService,
     private readonly purchasesService: PurchasesService,
     private readonly accountsService: PaymentMethodsService,
@@ -68,6 +76,8 @@ export class ExpensesService {
       relations: {
         category: true,
         paymentMethod: true,
+        plan: true,
+        installment: true,
         items: { article: true },
       },
       order: { occurredOn: 'DESC', createdAt: 'DESC' },
@@ -80,6 +90,8 @@ export class ExpensesService {
       relations: {
         category: true,
         paymentMethod: true,
+        plan: true,
+        installment: true,
         items: { article: true },
       },
     });
@@ -90,12 +102,52 @@ export class ExpensesService {
   }
 
   async create(userId: string, input: CreateExpenseInput): Promise<Expense> {
-    const { items, amount, categoryId, accountId, ...rest } = input;
+    const {
+      items,
+      amount,
+      categoryId,
+      accountId,
+      installmentCount = 1,
+      monthlyInterestRate = 0,
+      ...rest
+    } = input;
     const resolved = await this.resolveItems(userId, items);
     const finalAmount = this.resolveAmount(amount, resolved);
 
+    this.validateInstallmentInput(installmentCount, monthlyInterestRate);
+
     // la cuenta debe ser del usuario, y con crédito hay que respetar el cupo
     await this.accountsService.assertOwned(accountId, userId);
+    if (installmentCount > 1 && !accountId) {
+      throw new BadRequestException(
+        'Una compra a cuotas requiere una cuenta (accountId)',
+      );
+    }
+    if (
+      installmentCount > 1 &&
+      rest.recurrence &&
+      rest.recurrence !== Recurrence.ONCE
+    ) {
+      throw new BadRequestException(
+        'Una compra a cuotas no puede ser además un gasto recurrente',
+      );
+    }
+
+    if (installmentCount > 1) {
+      return this.createInInstallments(
+        userId,
+        {
+          ...rest,
+          amount: finalAmount,
+          categoryId: this.resolveCategory(categoryId, resolved),
+          accountId: accountId!,
+          installmentCount,
+          monthlyInterestRate,
+        },
+        resolved,
+      );
+    }
+
     if (accountId) {
       await this.accountsService.assertCreditAvailable(accountId, finalAmount);
     }
@@ -124,11 +176,30 @@ export class ExpensesService {
 
   async update(userId: string, input: UpdateExpenseInput): Promise<Expense> {
     const expense = await this.findOne(input.id, userId);
+    if (expense.planId) {
+      throw new BadRequestException(
+        'Las compras a cuotas no se pueden editar parcialmente; elimínala y créala de nuevo',
+      );
+    }
     // estado previo para ajustar el saldo
     const prevAccountId = expense.paymentMethodId;
     const prevAmount = expense.amount;
 
-    const { id, items, amount, categoryId, accountId, ...changes } = input;
+    const {
+      id,
+      items,
+      amount,
+      categoryId,
+      accountId,
+      installmentCount,
+      monthlyInterestRate,
+      ...changes
+    } = input;
+    if (installmentCount !== undefined || monthlyInterestRate !== undefined) {
+      throw new BadRequestException(
+        'La configuración de cuotas solo se puede indicar al crear la compra',
+      );
+    }
     if (accountId !== undefined) {
       await this.accountsService.assertOwned(accountId, userId);
       expense.paymentMethodId = accountId;
@@ -187,6 +258,22 @@ export class ExpensesService {
 
   async remove(id: string, userId: string): Promise<boolean> {
     const expense = await this.findOne(id, userId);
+    if (expense.planId) {
+      const planExpenses = await this.expensesRepository.find({
+        where: { planId: expense.planId, userId },
+      });
+      const total = planExpenses.reduce((sum, item) => sum + item.amount, 0);
+      await this.dataSource.transaction(async (manager) => {
+        await this.accountsService.adjustBalance(
+          expense.paymentMethodId,
+          total,
+          manager,
+        );
+        await manager.remove(Expense, planExpenses);
+        await manager.delete(InstallmentPlan, { id: expense.planId! });
+      });
+      return true;
+    }
     // devuelve el importe a la cuenta
     await this.dataSource.transaction(async (manager) => {
       await this.accountsService.adjustBalance(
@@ -197,6 +284,123 @@ export class ExpensesService {
       await manager.remove(Expense, expense);
     });
     return true;
+  }
+
+  private validateInstallmentInput(
+    installmentCount: number,
+    monthlyInterestRate: number,
+  ): void {
+    if (
+      !Number.isInteger(installmentCount) ||
+      installmentCount < 1 ||
+      installmentCount > 120
+    ) {
+      throw new BadRequestException(
+        'installmentCount debe ser un entero entre 1 y 120',
+      );
+    }
+    if (
+      !Number.isFinite(monthlyInterestRate) ||
+      monthlyInterestRate < 0 ||
+      monthlyInterestRate > 99.9999
+    ) {
+      throw new BadRequestException(
+        'monthlyInterestRate debe ser un decimal entre 0 y 99.9999',
+      );
+    }
+    if (installmentCount === 1 && monthlyInterestRate !== 0) {
+      throw new BadRequestException(
+        'monthlyInterestRate solo aplica cuando installmentCount es mayor que 1',
+      );
+    }
+  }
+
+  private async createInInstallments(
+    userId: string,
+    input: Omit<CreateExpenseInput, 'items'> & {
+      amount: number;
+      categoryId: string | null;
+      accountId: string;
+      installmentCount: number;
+      monthlyInterestRate: number;
+    },
+    resolvedItems: ResolvedItem[],
+  ): Promise<Expense> {
+    const schedule = calculateInstallments(
+      input.amount,
+      input.installmentCount,
+      input.monthlyInterestRate,
+      input.occurredOn,
+    );
+    const financedTotal = schedule.reduce((sum, item) => sum + item.amount, 0);
+    await this.accountsService.assertCreditAvailable(
+      input.accountId,
+      financedTotal,
+    );
+
+    const firstExpenseId = await this.dataSource.transaction(
+      async (manager) => {
+        const plan = await manager.save(
+          InstallmentPlan,
+          this.installmentPlansRepository.create({
+            userId,
+            paymentMethodId: input.accountId,
+            description: input.description,
+            totalAmount: financedTotal,
+            installmentCount: input.installmentCount,
+            monthlyRate: input.monthlyInterestRate,
+            purchaseDate: input.occurredOn,
+            firstDueDate: input.occurredOn,
+          }),
+        );
+
+        let firstExpense: Expense | undefined;
+        for (const part of schedule) {
+          const installment = await manager.save(
+            Installment,
+            this.installmentsRepository.create({
+              planId: plan.id,
+              ...part,
+            }),
+          );
+          const expense = await manager.save(
+            Expense,
+            this.expensesRepository.create({
+              userId,
+              paymentMethodId: input.accountId,
+              categoryId: input.categoryId,
+              planId: plan.id,
+              installmentId: installment.id,
+              description: `${input.description} (${part.sequenceNumber}/${input.installmentCount})`,
+              amount: part.amount,
+              currency: input.currency,
+              exchangeRate: input.exchangeRate,
+              occurredOn: part.dueDate,
+              merchant: input.merchant,
+              notes: input.notes,
+              receiptUrl: input.receiptUrl,
+              recurrence: input.recurrence,
+            }),
+          );
+          firstExpense ??= expense;
+        }
+
+        await this.accountsService.adjustBalance(
+          input.accountId,
+          -financedTotal,
+          manager,
+        );
+        await this.registerInventoryPurchases(
+          userId,
+          firstExpense!,
+          resolvedItems,
+          manager,
+        );
+        return firstExpense!.id;
+      },
+    );
+
+    return this.findOne(firstExpenseId, userId);
   }
 
   private async resolveItems(

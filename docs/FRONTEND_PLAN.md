@@ -61,9 +61,10 @@ El gasto pasó de "un artículo + cantidad" a **una lista de ítems**.
   - Con **un solo** ítem → si el usuario no elige categoría, se hereda del artículo (mostrarlo como "heredada de \<artículo\>").
   - Con **varios** ítems → mostrar el `<CategorySelect>` para elegirla explícitamente.
 - Validación cliente: exigir `amount` **o** al menos un ítem; cada ítem exige artículo (`articleId` o `newArticle`) y `unitPrice`.
+- **Cuotas**: agregar `installmentCount` (entero de 1 a 120) y `monthlyInterestRate` (decimal libre; `0.025` = 2.5% mensual). Para más de una cuota, `accountId` es obligatorio y `recurrence` debe ser `ONCE`.
 - **Efecto inventario**: si un ítem es artículo `type: PRODUCT`, tras guardar hay que **invalidar la caché** de `products`, `productStats`, `consumptionCycles` y la lista de compras (el backend abre/reabre ciclos automáticamente).
 
-**Listado de gastos** (`expenses(userId, filter)`): filtros `from`/`to`, `categoryId`, `accountId`. Mostrar por gasto: `description`, `amount`, `occurredOn`, `account { name }`, `category { name }`, y expandible los `items { article { name } unitPrice quantity subtotal }`.
+**Listado de gastos** (`expenses(userId, filter)`): filtros `from`/`to`, `categoryId`, `accountId`. Mostrar por gasto: `description`, `amount`, `occurredOn`, `account { name }`, `category { name }`, y expandible los `items { article { name } unitPrice quantity subtotal }`. Para cuotas consultar también `installment { sequenceNumber principalAmount interestAmount amount dueDate }` y `plan { installmentCount monthlyRate totalAmount }`; cada cuota ya aparece como un gasto en su mes correspondiente.
 
 **Editar** (`updateExpense`): enviar `items` **reemplaza** todos los ítems y recalcula el importe. `removeExpense` para borrar.
 

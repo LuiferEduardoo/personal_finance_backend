@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ArticlesModule } from '../articles/articles.module';
 import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
+import { InstallmentsModule } from '../installments/installments.module';
 import { ProductsModule } from '../products/products.module';
 import { Expense } from './entities/expense.entity';
 import { ExpenseItem } from './entities/expense-item.entity';
@@ -20,6 +21,7 @@ import { InflationService } from './inflation.service';
     ArticlesModule,
     ProductsModule,
     PaymentMethodsModule,
+    InstallmentsModule,
   ],
   providers: [
     ExpensesService,

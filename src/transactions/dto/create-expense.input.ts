@@ -1,4 +1,4 @@
-import { Field, Float, ID, InputType } from '@nestjs/graphql';
+import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
 import { Recurrence } from '../../common/enums/recurrence.enum';
 import { ExpenseItemInput } from './expense-item.input';
 
@@ -53,4 +53,19 @@ export class CreateExpenseInput {
     defaultValue: Recurrence.ONCE,
   })
   recurrence?: Recurrence;
+
+  @Field(() => Int, {
+    nullable: true,
+    defaultValue: 1,
+    description: 'Número de cuotas mensuales (entre 1 y 120)',
+  })
+  installmentCount?: number;
+
+  @Field(() => Float, {
+    nullable: true,
+    defaultValue: 0,
+    description:
+      'Tasa de interés mensual en formato decimal (por ejemplo, 0.025 = 2.5%)',
+  })
+  monthlyInterestRate?: number;
 }
