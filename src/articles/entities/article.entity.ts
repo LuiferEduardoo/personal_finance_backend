@@ -125,6 +125,10 @@ export class Article {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  @Field()
+  @Column({ name: 'is_one_time', default: false })
+  isOneTime: boolean;
+
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   notes: string | null;

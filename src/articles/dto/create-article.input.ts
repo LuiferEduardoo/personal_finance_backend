@@ -34,4 +34,11 @@ export class CreateArticleInput {
 
   @Field({ nullable: true })
   notes?: string;
+
+  @Field({
+    nullable: true,
+    defaultValue: false,
+    description: 'La compra usa el artículo una sola vez y no lo deja activo',
+  })
+  isOneTime?: boolean;
 }

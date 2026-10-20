@@ -114,4 +114,20 @@ describe('ArticlesService.resolveOrCreate', () => {
     expect(article.id).toBe('arroz');
     expect(repo.save).not.toHaveBeenCalled();
   });
+
+  it('crea inactivo un artículo marcado como compra única', async () => {
+    const repo = repository();
+
+    const article = await service(repo).resolveOrCreate('u1', undefined, {
+      name: 'Decoración para una fiesta',
+      type: ArticleType.PRODUCT,
+      isOneTime: true,
+    });
+
+    expect(article).toMatchObject({
+      name: 'Decoración para una fiesta',
+      isOneTime: true,
+      isActive: false,
+    });
+  });
 });

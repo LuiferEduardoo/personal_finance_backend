@@ -60,7 +60,11 @@ export class ArticlesService {
   }
 
   async create(userId: string, input: CreateArticleInput): Promise<Article> {
-    const article = this.articlesRepository.create({ ...input, userId });
+    const article = this.articlesRepository.create({
+      ...input,
+      userId,
+      isActive: !input.isOneTime,
+    });
     return this.articlesRepository.save(article);
   }
 
@@ -77,6 +81,9 @@ export class ArticlesService {
   ): Promise<Article> {
     const article = await this.findOne(id, userId);
     Object.assign(article, changes);
+    if (changes.isOneTime) {
+      article.isActive = false;
+    }
     await this.articlesRepository.save(article);
     return this.findOne(id, userId);
   }
@@ -140,6 +147,7 @@ export class ArticlesService {
           name,
           type: input.type,
           barcode,
+          isActive: !input.isOneTime,
         }),
       );
     } catch (error) {
