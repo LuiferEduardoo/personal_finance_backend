@@ -13,8 +13,7 @@ const UNIQUE_VIOLATION = '23505';
 
 // artículo descrito por una fuente externa (p. ej. la línea de una factura
 // electrónica), sin id del catálogo
-export interface ExternalArticleInput {
-  name: string;
+export interface ExternalArticleInput extends CreateArticleInput {
   type: ArticleType;
   barcode?: string | null;
 }
@@ -32,13 +31,18 @@ export class ArticlesService {
     type?: ArticleType,
     includeInactive = false,
   ): Promise<Article[]> {
+    const base = {
+      userId,
+      ...(includeInactive ? {} : { isActive: true }),
+      ...(type ? { type } : {}),
+    };
     return this.articlesRepository.find({
-      where: {
-        userId,
-        ...(includeInactive ? {} : { isActive: true }),
-        ...(type ? { type } : {}),
-        ...(search ? { name: ILike(`%${search}%`) } : {}),
-      },
+      where: search
+        ? [
+            { ...base, name: ILike(`%${search}%`) },
+            { ...base, invoiceName: ILike(`%${search}%`) },
+          ]
+        : base,
       relations: { category: true },
       order: { name: 'ASC' },
     });
@@ -98,7 +102,10 @@ export class ArticlesService {
       return this.findOne(articleId, userId);
     }
     if (newArticle) {
-      return this.create(userId, newArticle);
+      return this.findOrCreateByName(userId, {
+        ...newArticle,
+        type: newArticle.type ?? ArticleType.PRODUCT,
+      });
     }
     throw new BadRequestException('Falta articleId o newArticle');
   }
@@ -128,6 +135,7 @@ export class ArticlesService {
     try {
       return await this.articlesRepository.save(
         this.articlesRepository.create({
+          ...input,
           userId,
           name,
           type: input.type,
@@ -168,10 +176,14 @@ export class ArticlesService {
         return byBarcode;
       }
     }
-    // ILike sin comodines = igualdad sin mayúsculas; se escapan los que traiga
-    // el propio nombre para que "50% OFF" no se lea como patrón
+    // ILike sin comodines = igualdad sin mayúsculas. El alias de factura se
+    // consulta además del nombre canónico para evitar artículos duplicados.
+    // Se escapan los comodines que pueda traer el texto impreso.
     return this.articlesRepository.findOne({
-      where: { userId, type, name: ILike(escapeLike(name)) },
+      where: [
+        { userId, type, name: ILike(escapeLike(name)) },
+        { userId, type, invoiceName: ILike(escapeLike(name)) },
+      ],
     });
   }
 }

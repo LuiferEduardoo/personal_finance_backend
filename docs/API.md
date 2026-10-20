@@ -439,14 +439,14 @@ Un **artículo** es algo que el usuario compra repetidamente: un producto, un se
 ```graphql
 query {
   articles(search: "pan", type: PRODUCT, includeInactive: false) {
-    id name type unit brand isActive category { name }
+    id name invoiceName type unit brand isActive category { name }
   }
 }
 ```
 
 | Argumento | Tipo | Descripción |
 | --- | --- | --- |
-| `search` | `String` | Búsqueda parcial por nombre |
+| `search` | `String` | Búsqueda parcial por nombre o nombre de factura |
 | `type` | `ArticleType` | `PRODUCT` / `SERVICE` / `OTHER` |
 | `includeInactive` | `Boolean` | Incluir inactivos (default `false`) |
 
@@ -460,8 +460,12 @@ query { article(id: "<id>") { id name type } }
 
 ```graphql
 mutation {
-  createArticle(input: { name: "Netflix", type: SERVICE, notes: "plan familiar" }) {
-    id name type
+  createArticle(input: {
+    name: "Arroz económico"
+    invoiceName: "ARZ ECONOMIC 450g"
+    type: PRODUCT
+  }) {
+    id name invoiceName type
   }
 }
 mutation { updateArticle(input: { id: "<id>", brand: "Bimbo", isActive: false }) { id brand } }
@@ -469,6 +473,9 @@ mutation { removeArticle(id: "<id>") }
 ```
 
 Los artículos también pueden crearse **desde un gasto** con `newArticle` en `createExpense`.
+`invoiceName` guarda el texto abreviado tal como lo imprime el comercio. Al
+registrar una factura, una coincidencia exacta —sin distinguir mayúsculas—
+reutiliza el artículo existente en vez de crear uno duplicado.
 
 ---
 

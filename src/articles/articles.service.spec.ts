@@ -41,11 +41,39 @@ describe('ArticlesService.findOrCreateByName', () => {
       type: ArticleType.PRODUCT,
     });
     expect(repo.findOne).toHaveBeenCalledTimes(1);
+    expect(repo.findOne).toHaveBeenCalledWith({
+      where: [
+        { userId: 'u1', type: ArticleType.PRODUCT, name: expect.anything() },
+        {
+          userId: 'u1',
+          type: ArticleType.PRODUCT,
+          invoiceName: expect.anything(),
+        },
+      ],
+    });
     expect(article).toMatchObject({
       id: 'new',
       name: 'MINI CROISSANT',
       barcode: null,
     });
+  });
+
+  it('reutiliza el artículo cuyo alias coincide con la línea de factura', async () => {
+    const repo = repository({
+      findOne: jest.fn().mockResolvedValueOnce({
+        id: 'arroz',
+        name: 'Arroz económico',
+        invoiceName: 'ARZ ECONOMIC 450g',
+      }),
+    });
+
+    const article = await service(repo).findOrCreateByName('u1', {
+      name: 'ARZ ECONOMIC 450g',
+      type: ArticleType.PRODUCT,
+    });
+
+    expect(article.id).toBe('arroz');
+    expect(repo.save).not.toHaveBeenCalled();
   });
 
   it('si otra ingesta lo crea a la vez, devuelve el que ganó', async () => {
@@ -64,5 +92,26 @@ describe('ArticlesService.findOrCreateByName', () => {
       type: ArticleType.PRODUCT,
     });
     expect(article.id).toBe('winner');
+  });
+});
+
+describe('ArticlesService.resolveOrCreate', () => {
+  it('resuelve un artículo nuevo por su nombre de factura antes de crearlo', async () => {
+    const repo = repository({
+      findOne: jest.fn().mockResolvedValueOnce({
+        id: 'arroz',
+        name: 'Arroz económico',
+        invoiceName: 'ARZ ECONOMIC 450g',
+      }),
+    });
+
+    const article = await service(repo).resolveOrCreate('u1', undefined, {
+      name: 'ARZ ECONOMIC 450g',
+      type: ArticleType.PRODUCT,
+      brand: 'Marca de la factura',
+    });
+
+    expect(article.id).toBe('arroz');
+    expect(repo.save).not.toHaveBeenCalled();
   });
 });

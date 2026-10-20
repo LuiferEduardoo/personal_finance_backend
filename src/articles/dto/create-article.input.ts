@@ -7,6 +7,12 @@ export class CreateArticleInput {
   @Field()
   name: string;
 
+  @Field({
+    nullable: true,
+    description: 'Nombre abreviado o impreso que aparece en la factura',
+  })
+  invoiceName?: string | null;
+
   @Field(() => ArticleType, {
     nullable: true,
     defaultValue: ArticleType.PRODUCT,

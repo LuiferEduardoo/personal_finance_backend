@@ -38,6 +38,9 @@ registerEnumType(ArticleType, { name: 'ArticleType' });
 @Entity('articles')
 @Unique('articles_name_unique', ['userId', 'name', 'type'])
 @Index('idx_articles_user', ['userId'], { where: '"is_active"' })
+@Index('idx_articles_invoice_name', ['userId', 'invoiceName'], {
+  where: '"invoice_name" IS NOT NULL',
+})
 @Index('idx_articles_barcode', ['userId', 'barcode'], {
   where: '"barcode" IS NOT NULL',
 })
@@ -66,6 +69,13 @@ export class Article {
   @Field()
   @Column({ type: 'text' })
   name: string;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'Nombre abreviado o impreso que aparece en la factura',
+  })
+  @Column({ name: 'invoice_name', type: 'text', nullable: true })
+  invoiceName: string | null;
 
   @Field(() => ArticleType)
   @Column({
