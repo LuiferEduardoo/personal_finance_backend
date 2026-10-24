@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, QueryFailedError, Repository } from 'typeorm';
+import { ILike, IsNull, QueryFailedError, Repository } from 'typeorm';
 import { CreateArticleInput } from './dto/create-article.input';
 import { UpdateArticleInput } from './dto/update-article.input';
 import { Article, ArticleType } from './entities/article.entity';
@@ -168,6 +168,22 @@ export class ArticlesService {
       }
       throw error;
     }
+  }
+
+  // Asigna una categoría sugerida (clasificador automático) SOLO si el
+  // artículo sigue sin ella: el WHERE con IS NULL hace que la condición y la
+  // escritura sean atómicas, así que nunca pisa una categoría que el usuario
+  // haya puesto entre la lectura y este update. Devuelve si se asignó.
+  async assignCategoryIfMissing(
+    userId: string,
+    id: string,
+    categoryId: string,
+  ): Promise<boolean> {
+    const result = await this.articlesRepository.update(
+      { id, userId, categoryId: IsNull() },
+      { categoryId },
+    );
+    return (result.affected ?? 0) > 0;
   }
 
   private async findByBarcodeOrName(

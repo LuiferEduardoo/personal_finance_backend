@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ArticlesModule } from '../articles/articles.module';
+import { CategorizationModule } from '../categorization/categorization.module';
 import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
 import { InstallmentsModule } from '../installments/installments.module';
 import { ProductsModule } from '../products/products.module';
@@ -19,6 +20,7 @@ import { InflationService } from './inflation.service';
   imports: [
     TypeOrmModule.forFeature([Expense, ExpenseItem, Income, TransactionView]),
     ArticlesModule,
+    CategorizationModule,
     ProductsModule,
     PaymentMethodsModule,
     InstallmentsModule,

@@ -256,6 +256,32 @@ export class ExpensesService {
     return this.findOne(id, userId);
   }
 
+  /**
+   * Cambia la categoría de un gasto solo si sigue siendo `expected` (la que
+   * tenía al registrarse). Lo usa la clasificación en segundo plano: si el
+   * usuario la editó entretanto, la suya gana. La categoría no interviene en
+   * saldos, cuotas ni inventario (las métricas por categoría se calculan al
+   * consultar), así que no hay nada más que ajustar. Devuelve si la cambió.
+   */
+  async updateCategoryIfUnchanged(
+    userId: string,
+    id: string,
+    expected: string | null,
+    categoryId: string | null,
+  ): Promise<boolean> {
+    const result = await this.expensesRepository
+      .createQueryBuilder()
+      .update(Expense)
+      .set({ categoryId })
+      .where('"id" = :id', { id })
+      .andWhere('"user_id" = :userId', { userId })
+      .andWhere('"category_id" IS NOT DISTINCT FROM CAST(:expected AS uuid)', {
+        expected,
+      })
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
   async remove(id: string, userId: string): Promise<boolean> {
     const expense = await this.findOne(id, userId);
     if (expense.planId) {

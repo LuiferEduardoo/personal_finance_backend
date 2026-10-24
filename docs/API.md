@@ -21,6 +21,7 @@ En desarrollo está disponible el playground de Apollo abriendo esa misma URL en
 - [Inflación](#inflación)
 - [Productos](#productos)
 - [Compras y ciclos de consumo](#compras-y-ciclos-de-consumo)
+- [Facturas](#facturas)
 - [Inversiones](#inversiones)
 - [Utilidades](#utilidades)
 - [Tipos y enums](#tipos-y-enums)
@@ -285,6 +286,8 @@ Un gasto puede tener **varios artículos** (`items`) o ninguno. El importe se ca
 - **Con ítems**: `amount` = suma de `unitPrice * quantity` de cada ítem (se ignora el `amount` que se envíe). Con **un solo ítem** la categoría se hereda del artículo si no se envía `categoryId`.
 
 Cada ítem usa **uno** de `articleId` / `newArticle`. Si el artículo es **tipo producto**, entra al inventario (`products`, `inStock`, ciclo de consumo — ver [Compras y ciclos de consumo](#compras-y-ciclos-de-consumo)).
+
+Si algún artículo de los ítems no tiene categoría, después de guardar el gasto se le asigna una **en segundo plano** con el clasificador de categorías (Jev); la respuesta de la mutación no la espera, así que el artículo puede verse sin categoría unos segundos. Solo se toca el artículo y solo si sigue sin categoría; la categoría del gasto queda la que enviaste (o la heredada). Las compras a cuotas no se clasifican, porque sus gastos no llevan ítems.
 
 ```graphql
 mutation {
@@ -712,6 +715,60 @@ query {
 ```
 
 `depletedOn: null` indica el ciclo en curso. Solo puede haber **un ciclo abierto por artículo** (garantizado con un índice único parcial en la base de datos).
+
+---
+
+## Facturas
+
+El análisis de facturas va por **REST**, no por GraphQL. Todos los endpoints cuelgan de `/invoices`, exigen el access token (o una API key con el scope `invoices:write`) y siguen el flujo analizar → revisar → confirmar: analizar **no** crea el gasto.
+
+| Endpoint | Cuerpo | Respuesta |
+|---|---|---|
+| `POST /invoices/analyze-image` | `multipart/form-data` con el campo `image` (JPEG, PNG o WEBP, máx. 10 MB) | `ExpenseDraft` |
+| `POST /invoices/analyze-text` | JSON `{ "text": "..." }` | `ExpenseDraft` |
+| `POST /invoices/expense` | `CreateExpenseInput` (el borrador revisado, con `accountId`) | `Expense` |
+
+### `ExpenseDraft`
+
+```json
+{
+  "description": "Compra en D1",
+  "merchant": "D1",
+  "occurredOn": "2026-10-20",
+  "currency": "COP",
+  "amount": null,
+  "total": 11500,
+  "categoryId": "<idCategoría o null>",
+  "categorySuggestion": "Supermercado",
+  "accountId": null,
+  "items": [
+    {
+      "newArticle": { "name": "PAN", "type": "product", "unit": "unit", "brand": null, "categoryId": "<id o null>" },
+      "unitPrice": 3500,
+      "quantity": 2,
+      "discount": null,
+      "lineTotal": 7000,
+      "description": null
+    }
+  ],
+  "warnings": []
+}
+```
+
+- Los números se leen en formato colombiano (`3.500` = 3500; la coma es decimal). En productos pesados `quantity` es el peso y `unitPrice` el precio por kg.
+- `lineTotal` (por línea) y `total` (de la factura) son lo impreso y **solo sirven para cuadrar**: el backend comprueba `unitPrice * quantity - discount ≈ lineTotal` y que la suma de las líneas ≈ `total`, con una holgura de redondeo. Lo que no cuadra se describe en `warnings` (texto en español para mostrar al usuario); los números **no** se corrigen. La única excepción: si falta `unitPrice` y hay `lineTotal`, se deriva como `(lineTotal + discount) / quantity` y se avisa. Si no hay forma de saberlo, `unitPrice` queda `null` y el usuario debe completarlo antes de confirmar.
+- `discount` es el descuento en importe de la línea; `ExpenseItemInput` lo acepta tal cual.
+- `categoryId` (del gasto) y `newArticle.categoryId` los sugiere el clasificador de categorías (Jev, de TypeSafe) entre las categorías de gasto del usuario. Son `null` si no hay una decisión clara o si la clasificación no está disponible; el análisis nunca falla por eso. La categoría de un artículo solo se aplica si se crea nuevo: si ya existe en el catálogo se conserva la suya.
+- `categorySuggestion` está **obsoleto**: es texto libre de GPT-4o y se mantiene por compatibilidad. Usa `categoryId`.
+- Al confirmar, el cuerpo puede llevar los campos extra del borrador (`total`, `warnings`, `lineTotal`...): se ignoran.
+
+En el análisis por foto o texto la clasificación es **síncrona**: el borrador ya trae las categorías sugeridas.
+
+### Facturas desde Gmail
+
+Las facturas que llegan por Gmail usan el mismo clasificador, pero **en segundo plano**: el gasto se registra primero con la categoría por defecto del remitente (sin ella, con un solo ítem la del artículo, o ninguna) y la clasificación corre después. Solo se pregunta por los artículos que aún no tienen categoría y la sugerencia se guarda en el artículo **solo si sigue sin categoría**; nunca se pisa la que puso el usuario. La categoría del gasto cambia solo si el clasificador dice con claridad que la compra no pertenece a la por defecto y propone otra (sin por defecto, si el gasto quedó sin categoría), y **solo si nadie la editó desde el registro**.
+
+La clasificación en segundo plano (Gmail y `createExpense`) corre en una cola en memoria del proceso: al apagar se espera a lo pendiente con un tope, pero una caída del proceso pierde las clasificaciones que no habían terminado. El gasto ya está guardado; solo se pierde la sugerencia de categoría y no se reintenta.
 
 ---
 

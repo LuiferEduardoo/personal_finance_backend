@@ -131,3 +131,29 @@ describe('ArticlesService.resolveOrCreate', () => {
     });
   });
 });
+
+describe('ArticlesService.assignCategoryIfMissing', () => {
+  it('solo escribe la categoría si el artículo sigue sin ella', async () => {
+    const repo = {
+      ...repository(),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    expect(
+      await service(repo).assignCategoryIfMissing('u1', 'a1', 'cat-1'),
+    ).toBe(true);
+    expect(repo.update).toHaveBeenCalledWith(
+      { id: 'a1', userId: 'u1', categoryId: expect.anything() },
+      { categoryId: 'cat-1' },
+    );
+  });
+
+  it('no pisa una categoría puesta por el usuario', async () => {
+    const repo = {
+      ...repository(),
+      update: jest.fn().mockResolvedValue({ affected: 0 }),
+    };
+    expect(
+      await service(repo).assignCategoryIfMissing('u1', 'a1', 'cat-1'),
+    ).toBe(false);
+  });
+});

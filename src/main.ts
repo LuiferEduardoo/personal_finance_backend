@@ -19,6 +19,9 @@ function corsOrigin(): string[] | boolean {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  // SIGTERM/SIGINT ejecutan los hooks de apagado: la cola de clasificación
+  // en segundo plano drena lo pendiente (con tope) antes de salir
+  app.enableShutdownHooks();
   app.use(httpRateLimit(Number(process.env.RATE_LIMIT_PER_MINUTE ?? 120)));
   app.enableCors({
     origin: corsOrigin(),

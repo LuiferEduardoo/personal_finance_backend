@@ -4,6 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Scopes } from '../auth/decorators/scopes.decorator';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
 import { Principal } from '../auth/principal';
+import { ExpenseItemsCategorizationService } from '../categorization/expense-items-categorization.service';
 import { ApiScope } from '../common/enums/api-scope.enum';
 import { CreateExpenseInput } from './dto/create-expense.input';
 import { TransactionsFilterInput } from './dto/transactions-filter.input';
@@ -14,7 +15,10 @@ import { ExpensesService } from './expenses.service';
 @Resolver(() => Expense)
 @UseGuards(GqlAuthGuard)
 export class ExpensesResolver {
-  constructor(private readonly expensesService: ExpensesService) {}
+  constructor(
+    private readonly expensesService: ExpensesService,
+    private readonly itemsCategorization: ExpenseItemsCategorizationService,
+  ) {}
 
   @Query(() => [Expense])
   @Scopes(ApiScope.EXPENSES_READ)
@@ -36,11 +40,16 @@ export class ExpensesResolver {
 
   @Mutation(() => Expense)
   @Scopes(ApiScope.EXPENSES_WRITE)
-  createExpense(
+  async createExpense(
     @CurrentUser() user: Principal,
     @Args('input') input: CreateExpenseInput,
   ): Promise<Expense> {
-    return this.expensesService.create(user.sub, input);
+    const expense = await this.expensesService.create(user.sub, input);
+    // en segundo plano y solo aquí: la ingesta de correo, los recurrentes y
+    // los borradores de factura también crean gastos y no deben clasificar
+    // (otra vez) sus artículos
+    this.itemsCategorization.enqueueFor(user.sub, expense);
+    return expense;
   }
 
   @Mutation(() => Expense)

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ArticlesModule } from '../articles/articles.module';
+import { CategorizationModule } from '../categorization/categorization.module';
 import { CategoriesModule } from '../categories/categories.module';
 import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
 import { TransactionsModule } from '../transactions/transactions.module';
@@ -34,6 +35,7 @@ import { MailSyncService } from './mail-sync.service';
     ]),
     ArticlesModule,
     CategoriesModule,
+    CategorizationModule,
     PaymentMethodsModule,
     TransactionsModule,
   ],
