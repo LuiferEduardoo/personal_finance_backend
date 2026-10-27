@@ -4,6 +4,7 @@ import { CreateRecurringExpenseInput } from './create-recurring-expense.input';
 @InputType()
 export class UpdateRecurringExpenseInput extends PartialType(
   CreateRecurringExpenseInput,
+  { omitDefaultValues: true },
 ) {
   @Field(() => ID)
   id: string;

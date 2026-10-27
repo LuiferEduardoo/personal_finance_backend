@@ -26,6 +26,7 @@ export class CreateInvestmentAccountInput {
 @InputType()
 export class UpdateInvestmentAccountInput extends PartialType(
   CreateInvestmentAccountInput,
+  { omitDefaultValues: true },
 ) {
   @Field(() => ID)
   id: string;
