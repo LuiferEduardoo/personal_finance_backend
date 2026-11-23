@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -48,8 +49,17 @@ import { PositionsService } from './positions.service';
 
 const UNIQUE_VIOLATION = '23505';
 
+// operación que llega de un documento del bróker: además de lo normal, lleva su
+// referencia y el dato crudo
+export interface BatchTransactionInput extends CreateInvestmentTransactionInput {
+  externalId?: string;
+  raw?: Record<string, unknown>;
+}
+
 @Injectable()
 export class InvestmentTransactionsService {
+  private readonly logger = new Logger(InvestmentTransactionsService.name);
+
   constructor(
     @InjectRepository(InvestmentTransaction)
     private readonly transactionsRepository: Repository<InvestmentTransaction>,
@@ -175,6 +185,72 @@ export class InvestmentTransactionsService {
       );
     }
     return this.findOne(id, userId);
+  }
+
+  // Registra varias operaciones de una cuenta en UNA transacción: o entran todas
+  // las que no estaban ya, o ninguna (un LedgerError deshace también el insert).
+  // orIgnore + el índice único de deduplicación: las que ya están se saltan sin
+  // carrera, igual que en ImportService.commit e InvestmentSyncService.persist.
+  async createBatch(
+    userId: string,
+    accountId: string,
+    inputs: BatchTransactionInput[],
+  ): Promise<{ inserted: number; duplicates: number }> {
+    if (inputs.length === 0) {
+      return { inserted: 0, duplicates: 0 };
+    }
+    await this.accountsService.assertOwned(accountId, userId);
+    const values: Partial<InvestmentTransaction>[] = [];
+    for (const input of inputs) {
+      values.push({
+        ...(await this.normalize(userId, { ...input, accountId })),
+        externalId: input.externalId ?? null,
+        raw: input.raw ?? null,
+      });
+    }
+
+    const inserted = await this.runWrite(
+      userId,
+      [accountId],
+      async (manager) => {
+        const result = await manager
+          .createQueryBuilder()
+          .insert()
+          .into(InvestmentTransaction)
+          .values(values)
+          .orIgnore()
+          .returning('id')
+          .execute();
+        return (result.raw as unknown[] | undefined)?.length ?? 0;
+      },
+    );
+
+    if (inserted > 0) {
+      await this.backfillBatch(values);
+    }
+    return { inserted, duplicates: values.length - inserted };
+  }
+
+  // Ya está todo guardado: un fallo aquí solo aplaza el histórico de precios,
+  // no puede convertir en error una escritura que ya se confirmó.
+  private async backfillBatch(
+    values: Partial<InvestmentTransaction>[],
+  ): Promise<void> {
+    const earliest = values.map((value) => value.occurredOn!).sort()[0];
+    const instrumentIds = new Set(
+      values
+        .map((value) => value.instrumentId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    for (const instrumentId of instrumentIds) {
+      try {
+        await this.pricesService.requestBackfill(instrumentId, earliest);
+      } catch (error) {
+        this.logger.warn(
+          `Backfill de ${instrumentId} aplazado: ${(error as Error).message}`,
+        );
+      }
+    }
   }
 
   async update(

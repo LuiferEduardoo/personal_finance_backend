@@ -1,5 +1,13 @@
 import { UseGuards } from '@nestjs/common';
-import { Args, ID, Mutation, Query, Resolver } from '@nestjs/graphql';
+import {
+  Args,
+  ID,
+  Mutation,
+  Parent,
+  Query,
+  ResolveField,
+  Resolver,
+} from '@nestjs/graphql';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { GqlUserOnlyGuard } from '../auth/guards/gql-user-only.guard';
 import { Principal } from '../auth/principal';
@@ -20,8 +28,17 @@ export class MailSendersResolver {
     private readonly syncService: MailSyncService,
   ) {}
 
+  @ResolveField(() => Boolean, {
+    description:
+      'Si hay una contraseña guardada para abrir los adjuntos. La contraseña nunca se devuelve',
+  })
+  hasAttachmentPassword(@Parent() sender: MailSender): boolean {
+    return sender.attachmentPasswordCiphertext != null;
+  }
+
   @Query(() => [MailSender], {
-    description: 'Remitentes cuyas facturas electrónicas se leen del correo',
+    description:
+      'Remitentes cuyas facturas electrónicas o confirmaciones de órdenes se leen del correo',
   })
   mailSenders(
     @CurrentUser() user: Principal,
@@ -34,7 +51,8 @@ export class MailSendersResolver {
   @Mutation(() => MailSender, {
     description:
       'Configura un remitente. Sus facturas se registran solas como gasto en la cuenta ' +
-      'por defecto. Con backfillFrom se leen además sus correos desde esa fecha.',
+      'por defecto; las confirmaciones de XTB, como operaciones en su cuenta de inversión. ' +
+      'Con backfillFrom se leen además sus correos desde esa fecha.',
   })
   async createMailSender(
     @CurrentUser() user: Principal,
@@ -70,7 +88,7 @@ export class MailSendersResolver {
     description:
       'Lee los correos antiguos del remitente (desde `since`, o desde su backfillFrom, o todos). ' +
       'Corre en segundo plano: el avance se ve en backfillStatus y en mailMessages. ' +
-      'Es idempotente: las facturas ya registradas no se duplican.',
+      'Es idempotente: lo ya registrado no se duplica.',
   })
   backfillMailSender(
     @CurrentUser() user: Principal,

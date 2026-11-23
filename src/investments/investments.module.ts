@@ -93,6 +93,7 @@ import { SnapshotsService } from './snapshots.service';
     SnapshotsService,
     BrokerConnectionsService,
     InvestmentSyncService,
+    PdfStatementService,
   ],
 })
 export class InvestmentsModule {}

@@ -7,7 +7,7 @@ import { MailAttachment } from '../parsing/attachment-extractor';
 export const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
 // Solo se descargan los adjuntos que pueden llevar la factura. El PDF y las
-// imágenes de la firma del correo ni se bajan.
+// imágenes de la firma del correo ni se bajan en un remitente de facturas.
 const INVOICE_ATTACHMENT = /\.(xml|zip|rar)$/i;
 const INVOICE_MIME_TYPES = [
   'application/xml',
@@ -17,6 +17,8 @@ const INVOICE_MIME_TYPES = [
   'application/x-rar-compressed',
   'application/vnd.rar',
 ];
+
+const PDF_ATTACHMENT = /\.pdf$/i;
 
 export type GmailApi = gmail_v1.Gmail;
 
@@ -193,9 +195,37 @@ export class GmailClientService {
     };
   }
 
-  async getInvoiceAttachments(
+  getInvoiceAttachments(
     api: GmailApi,
     messageId: string,
+  ): Promise<MailAttachment[]> {
+    return this.downloadAttachments(
+      api,
+      messageId,
+      (filename, mimeType) =>
+        INVOICE_ATTACHMENT.test(filename) ||
+        INVOICE_MIME_TYPES.includes(mimeType),
+    );
+  }
+
+  // Solo para los remitentes que mandan un PDF. Por el nombre además del tipo:
+  // algunos correos declaran el PDF como application/octet-stream.
+  getPdfAttachments(
+    api: GmailApi,
+    messageId: string,
+  ): Promise<MailAttachment[]> {
+    return this.downloadAttachments(
+      api,
+      messageId,
+      (filename, mimeType) =>
+        PDF_ATTACHMENT.test(filename) || mimeType === 'application/pdf',
+    );
+  }
+
+  private async downloadAttachments(
+    api: GmailApi,
+    messageId: string,
+    wanted: (filename: string, mimeType: string) => boolean,
   ): Promise<MailAttachment[]> {
     const { data } = await api.users.messages.get({
       userId: 'me',
@@ -206,10 +236,7 @@ export class GmailClientService {
     for (const part of flattenParts(data.payload)) {
       const filename = part.filename ?? '';
       const mimeType = (part.mimeType ?? '').toLowerCase();
-      if (
-        !INVOICE_ATTACHMENT.test(filename) &&
-        !INVOICE_MIME_TYPES.includes(mimeType)
-      ) {
+      if (!wanted(filename, mimeType)) {
         continue;
       }
       // los adjuntos pequeños vienen en línea; los grandes, por id aparte

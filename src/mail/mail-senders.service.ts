@@ -1,25 +1,39 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import { CategoriesService } from '../categories/categories.service';
+import { CURRENT_KEY_VERSION, SecretBox } from '../common/crypto/secret-box';
+import { InvestmentAccountsService } from '../investments/investment-accounts.service';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import {
   CreateMailSenderInput,
   UpdateMailSenderInput,
 } from './dto/mail-sender.input';
-import { MailBackfillStatus, MailSender } from './entities/mail-sender.entity';
-import { MailConnectionsService } from './mail-connections.service';
+import {
+  MailBackfillStatus,
+  MailSender,
+  MailSenderKind,
+} from './entities/mail-sender.entity';
+import {
+  MAIL_SECRET_BOX,
+  MailConnectionsService,
+} from './mail-connections.service';
 
 const EMAIL = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Remitentes configurados: QUÉ correos se leen y con qué comercio y cuenta se
-// registran sus facturas.
+// registran sus facturas u órdenes.
+//
+// Ningún método devuelve la contraseña de los adjuntos al exterior:
+// `attachmentPasswordOf` la abre solo para quien lee el PDF.
 @Injectable()
 export class MailSendersService {
   constructor(
@@ -28,12 +42,18 @@ export class MailSendersService {
     private readonly connectionsService: MailConnectionsService,
     private readonly accountsService: PaymentMethodsService,
     private readonly categoriesService: CategoriesService,
+    private readonly investmentAccountsService: InvestmentAccountsService,
+    @Inject(MAIL_SECRET_BOX) private readonly secretBox: SecretBox,
   ) {}
 
   findAll(userId: string, connectionId?: string): Promise<MailSender[]> {
     return this.sendersRepository.find({
       where: { userId, ...(connectionId ? { connectionId } : {}) },
-      relations: { defaultAccount: true, defaultCategory: true },
+      relations: {
+        defaultAccount: true,
+        defaultCategory: true,
+        investmentAccount: true,
+      },
       order: { merchantName: 'ASC' },
     });
   }
@@ -41,7 +61,11 @@ export class MailSendersService {
   async findOne(id: string, userId: string): Promise<MailSender> {
     const sender = await this.sendersRepository.findOne({
       where: { id, userId },
-      relations: { defaultAccount: true, defaultCategory: true },
+      relations: {
+        defaultAccount: true,
+        defaultCategory: true,
+        investmentAccount: true,
+      },
     });
     if (!sender) {
       throw new NotFoundException(`Remitente ${id} no encontrado`);
@@ -71,8 +95,15 @@ export class MailSendersService {
     const emailAddress = this.normalizeEmail(input.emailAddress);
     await this.assertUnique(input.connectionId, emailAddress);
 
+    // El AAD ata la contraseña a ESTA fila, así que el id se genera aquí: si
+    // sellar falla no queda un remitente a medio crear.
+    const id = randomUUID();
     const sender = await this.sendersRepository.save(
       this.sendersRepository.create({
+        id,
+        ...this.sealedPassword(id, input.attachmentPassword),
+        kind: input.kind ?? MailSenderKind.INVOICE,
+        investmentAccountId: input.investmentAccountId ?? null,
         userId,
         connectionId: input.connectionId,
         emailAddress,
@@ -112,6 +143,12 @@ export class MailSendersService {
     if (input.defaultCategoryId !== undefined) {
       sender.defaultCategoryId = input.defaultCategoryId ?? null;
     }
+    if (input.investmentAccountId !== undefined) {
+      sender.investmentAccountId = input.investmentAccountId ?? null;
+    }
+    if (input.kind !== undefined && input.kind !== null) {
+      sender.kind = input.kind;
+    }
     if (input.active !== undefined && input.active !== null) {
       sender.active = input.active;
     }
@@ -124,10 +161,36 @@ export class MailSendersService {
         merchantName: sender.merchantName,
         defaultAccountId: sender.defaultAccountId,
         defaultCategoryId: sender.defaultCategoryId,
+        investmentAccountId: sender.investmentAccountId,
+        kind: sender.kind,
         active: sender.active,
+        // sin el campo, la contraseña guardada no se toca
+        ...(input.attachmentPassword !== undefined
+          ? this.sealedPassword(sender.id, input.attachmentPassword)
+          : {}),
       },
     );
     return this.findOne(sender.id, userId);
+  }
+
+  // ÚNICO punto de descifrado de la contraseña de los adjuntos.
+  attachmentPasswordOf(sender: MailSender): string | null {
+    if (
+      !sender.attachmentPasswordCiphertext ||
+      !sender.attachmentPasswordIv ||
+      !sender.attachmentPasswordTag
+    ) {
+      return null;
+    }
+    return this.secretBox.open(
+      {
+        ciphertext: sender.attachmentPasswordCiphertext,
+        iv: sender.attachmentPasswordIv,
+        tag: sender.attachmentPasswordTag,
+        keyVersion: sender.attachmentPasswordKeyVersion,
+      },
+      sender.id,
+    );
   }
 
   async remove(id: string, userId: string): Promise<boolean> {
@@ -157,9 +220,14 @@ export class MailSendersService {
     input: {
       defaultAccountId?: string | null;
       defaultCategoryId?: string | null;
+      investmentAccountId?: string | null;
     },
   ): Promise<void> {
     await this.accountsService.assertOwned(input.defaultAccountId, userId);
+    await this.investmentAccountsService.assertOwned(
+      input.investmentAccountId,
+      userId,
+    );
     if (input.defaultCategoryId) {
       await this.categoriesService.findOne(input.defaultCategoryId, userId);
     }
@@ -177,6 +245,40 @@ export class MailSendersService {
         `El remitente ${emailAddress} ya está configurado en este buzón`,
       );
     }
+  }
+
+  // Columnas de la contraseña: selladas, o vacías si no hay (null la borra). No
+  // se recorta: los espacios pueden ser parte de la contraseña del PDF.
+  private sealedPassword(
+    senderId: string,
+    password: string | null | undefined,
+  ): Pick<
+    MailSender,
+    | 'attachmentPasswordCiphertext'
+    | 'attachmentPasswordIv'
+    | 'attachmentPasswordTag'
+    | 'attachmentPasswordKeyVersion'
+  > {
+    if (password === null || password === undefined) {
+      return {
+        attachmentPasswordCiphertext: null,
+        attachmentPasswordIv: null,
+        attachmentPasswordTag: null,
+        attachmentPasswordKeyVersion: CURRENT_KEY_VERSION,
+      };
+    }
+    if (!password.trim()) {
+      throw new BadRequestException(
+        'attachmentPassword no puede estar vacía; envía null para borrarla',
+      );
+    }
+    const sealed = this.secretBox.seal(password, senderId);
+    return {
+      attachmentPasswordCiphertext: sealed.ciphertext,
+      attachmentPasswordIv: sealed.iv,
+      attachmentPasswordTag: sealed.tag,
+      attachmentPasswordKeyVersion: sealed.keyVersion,
+    };
   }
 
   private normalizeEmail(value: string): string {

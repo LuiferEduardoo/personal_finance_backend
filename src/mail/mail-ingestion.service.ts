@@ -19,7 +19,7 @@ import { MailMessagesFilterInput } from './dto/mail-sender.input';
 import { MailConnection } from './entities/mail-connection.entity';
 import { MailInvoice } from './entities/mail-invoice.entity';
 import { MailMessage, MailMessageStatus } from './entities/mail-message.entity';
-import { MailSender } from './entities/mail-sender.entity';
+import { MailSender, MailSenderKind } from './entities/mail-sender.entity';
 import { GmailApi, GmailClientService } from './gmail/gmail-client.service';
 import { MailConnectionsService } from './mail-connections.service';
 import { extractXmlDocuments } from './parsing/attachment-extractor';
@@ -28,6 +28,7 @@ import {
   ParsedInvoiceLine,
   parseDianInvoice,
 } from './parsing/ubl-invoice.parser';
+import { XtbOrderConfirmationsService } from './xtb-order-confirmations.service';
 
 const MAX_MESSAGES_PAGE = 200;
 
@@ -59,7 +60,9 @@ interface CategorizationJob {
 const RETRYABLE = [MailMessageStatus.FAILED, MailMessageStatus.PROCESSING];
 
 // De un correo a un gasto: descarga los adjuntos, saca el XML, lo interpreta
-// y registra el gasto en la cuenta por defecto del remitente.
+// y registra el gasto en la cuenta por defecto del remitente. Los remitentes de
+// confirmaciones de órdenes siguen su propio camino al libro de inversiones
+// (XtbOrderConfirmationsService), con la misma bitácora y el mismo cerrojo 1.
 //
 // Dos cerrojos lo hacen idempotente:
 //  1. mail_messages (connection_id, gmail_message_id): el push, la lectura de
@@ -89,6 +92,7 @@ export class MailIngestionService {
     private readonly expensesService: ExpensesService,
     private readonly classifier: CategoryClassifierService,
     private readonly categorizationQueue: CategorizationQueue,
+    private readonly xtbOrders: XtbOrderConfirmationsService,
   ) {}
 
   // bitácora de correos procesados, del más reciente al más antiguo
@@ -201,6 +205,17 @@ export class MailIngestionService {
     api: GmailApi,
   ): Promise<MailMessageStatus> {
     try {
+      if (sender.kind === MailSenderKind.XTB_ORDER_CONFIRMATION) {
+        const outcome = await this.xtbOrders.record(message, sender, api);
+        return this.finish(
+          message,
+          outcome.status,
+          outcome.note,
+          null,
+          outcome.operationsRecorded,
+        );
+      }
+
       const attachments = await this.gmailClient.getInvoiceAttachments(
         api,
         message.gmailMessageId,
@@ -449,10 +464,16 @@ export class MailIngestionService {
     status: MailMessageStatus,
     error: string | null,
     expenseId: string | null = null,
+    operationsRecorded: number | null = null,
   ): Promise<MailMessageStatus> {
     await this.messagesRepository.update(
       { id: message.id },
-      { status, error, expenseId },
+      {
+        status,
+        error,
+        expenseId,
+        ...(operationsRecorded !== null ? { operationsRecorded } : {}),
+      },
     );
     return status;
   }

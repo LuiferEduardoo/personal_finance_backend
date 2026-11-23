@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ArticlesModule } from '../articles/articles.module';
 import { CategorizationModule } from '../categorization/categorization.module';
 import { CategoriesModule } from '../categories/categories.module';
+import { InvestmentsModule } from '../investments/investments.module';
+import { MarketDataModule } from '../market-data/market-data.module';
 import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { SecretBox } from '../common/crypto/secret-box';
@@ -24,6 +26,7 @@ import { MailMessagesResolver } from './mail-messages.resolver';
 import { MailSendersResolver } from './mail-senders.resolver';
 import { MailSendersService } from './mail-senders.service';
 import { MailSyncService } from './mail-sync.service';
+import { XtbOrderConfirmationsService } from './xtb-order-confirmations.service';
 
 @Module({
   imports: [
@@ -36,6 +39,8 @@ import { MailSyncService } from './mail-sync.service';
     ArticlesModule,
     CategoriesModule,
     CategorizationModule,
+    InvestmentsModule,
+    MarketDataModule,
     PaymentMethodsModule,
     TransactionsModule,
   ],
@@ -55,6 +60,7 @@ import { MailSyncService } from './mail-sync.service';
     MailConnectionsResolver,
     MailSendersService,
     MailSendersResolver,
+    XtbOrderConfirmationsService,
     MailIngestionService,
     MailMessagesResolver,
     MailSyncService,

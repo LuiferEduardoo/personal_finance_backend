@@ -562,19 +562,8 @@ export class ImportService {
     if (cache.has(key)) {
       return cache.get(key)!;
     }
-    // el símbolo del bróker suele traer sufijos: "AAPL.US", "AAPL/USD"
-    const candidates = [key, key.split(/[./]/)[0]];
-    let found: string | null = null;
-    for (const candidate of candidates) {
-      const matches = await this.instrumentsService.search(candidate, 5);
-      const exact = matches.find(
-        (instrument) => instrument.symbol.toUpperCase() === candidate,
-      );
-      if (exact) {
-        found = exact.id;
-        break;
-      }
-    }
+    const instrument = await this.instrumentsService.findByBrokerSymbol(key);
+    const found = instrument?.id ?? null;
     cache.set(key, found);
     return found;
   }

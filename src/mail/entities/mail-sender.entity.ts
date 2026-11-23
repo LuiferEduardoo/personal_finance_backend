@@ -10,6 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Category } from '../../categories/entities/category.entity';
+import { InvestmentAccount } from '../../investments/entities/investment-account.entity';
 import { PaymentMethod } from '../../payment-methods/entities/payment-method.entity';
 import { User } from '../../users/entities/user.entity';
 import { MailConnection } from './mail-connection.entity';
@@ -26,8 +27,23 @@ registerEnumType(MailBackfillStatus, {
   description: 'Estado de la lectura de correos antiguos de un remitente',
 });
 
-// Remitente cuyas facturas se leen. Solo los correos de direcciones
+export enum MailSenderKind {
+  INVOICE = 'invoice',
+  XTB_ORDER_CONFIRMATION = 'xtb_order_confirmation',
+}
+
+registerEnumType(MailSenderKind, {
+  name: 'MailSenderKind',
+  description:
+    'Qué manda el remitente: facturas electrónicas o confirmaciones de órdenes de XTB',
+});
+
+// Remitente cuyos correos se leen. Solo los correos de direcciones
 // configuradas aquí se procesan: el resto del buzón ni se descarga.
+//
+// La contraseña de los adjuntos va cifrada con SecretBox (MAIL_ENCRYPTION_KEY)
+// y sus columnas NO llevan @Field: GraphQL solo ve hasAttachmentPassword, que
+// resuelve MailSendersResolver.
 @ObjectType()
 @Entity('mail_senders')
 @Unique('mail_senders_email_unique', ['connectionId', 'emailAddress'])
@@ -59,6 +75,15 @@ export class MailSender {
   @Field(() => ID)
   @Column({ name: 'connection_id', type: 'uuid' })
   connectionId: string;
+
+  @Field(() => MailSenderKind)
+  @Column({
+    type: 'enum',
+    enum: MailSenderKind,
+    enumName: 'mail_sender_kind',
+    default: MailSenderKind.INVOICE,
+  })
+  kind: MailSenderKind;
 
   @Field({ description: 'Dirección del remitente, en minúsculas' })
   @Column({ name: 'email_address', type: 'text' })
@@ -92,6 +117,41 @@ export class MailSender {
   @Field(() => ID, { nullable: true })
   @Column({ name: 'default_category_id', type: 'uuid', nullable: true })
   defaultCategoryId: string | null;
+
+  // cuenta de inversión donde caen las operaciones de una confirmación de XTB
+  @Field(() => InvestmentAccount, { nullable: true })
+  @ManyToOne(() => InvestmentAccount, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({
+    name: 'investment_account_id',
+    foreignKeyConstraintName: 'FK_mail_senders_investment_account',
+  })
+  investmentAccount: InvestmentAccount | null;
+
+  @Field(() => ID, { nullable: true })
+  @Column({ name: 'investment_account_id', type: 'uuid', nullable: true })
+  investmentAccountId: string | null;
+
+  // --- contraseña de los adjuntos cifrada: sin @Field, nunca sale por la API ---
+
+  @Column({
+    name: 'attachment_password_ciphertext',
+    type: 'bytea',
+    nullable: true,
+  })
+  attachmentPasswordCiphertext: Buffer | null;
+
+  @Column({ name: 'attachment_password_iv', type: 'bytea', nullable: true })
+  attachmentPasswordIv: Buffer | null;
+
+  @Column({ name: 'attachment_password_tag', type: 'bytea', nullable: true })
+  attachmentPasswordTag: Buffer | null;
+
+  @Column({
+    name: 'attachment_password_key_version',
+    type: 'smallint',
+    default: 1,
+  })
+  attachmentPasswordKeyVersion: number;
 
   @Field()
   @Column({ default: true })

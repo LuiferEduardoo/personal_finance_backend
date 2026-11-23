@@ -89,11 +89,15 @@ export class InstrumentsService {
         `${symbol}|${exchange ?? ''}`,
       ]);
       const repository = manager.getRepository(Instrument);
-      const existing = await repository.findOne({ where: { symbol, exchange } });
+      const existing = await repository.findOne({
+        where: { symbol, exchange },
+      });
       if (existing) {
         let enriched = false;
         if (!existing.twelveDataSymbol && input.twelveDataSymbol) {
-          existing.twelveDataSymbol = input.twelveDataSymbol.trim().toUpperCase();
+          existing.twelveDataSymbol = input.twelveDataSymbol
+            .trim()
+            .toUpperCase();
           enriched = true;
         }
         if (!existing.sector && input.sector?.trim()) {
@@ -103,20 +107,22 @@ export class InstrumentsService {
         return enriched ? repository.save(existing) : existing;
       }
 
-      return repository.save(repository.create({
-        ...input,
-        symbol,
-        exchange,
-        currency,
-        sector: input.sector?.trim() || null,
-        twelveDataSymbol:
-          input.twelveDataSymbol?.trim().toUpperCase() || symbol,
-        country: input.country?.trim().toUpperCase() ?? null,
-        assetClass: input.assetClass ?? InstrumentAssetClass.EQUITY,
-        priceSource: InstrumentPriceSource.MANUAL,
-        // los benchmarks se refrescan siempre, tenga o no posiciones el usuario
-        needsDailyPrice: input.benchmarkKey != null,
-      }));
+      return repository.save(
+        repository.create({
+          ...input,
+          symbol,
+          exchange,
+          currency,
+          sector: input.sector?.trim() || null,
+          twelveDataSymbol:
+            input.twelveDataSymbol?.trim().toUpperCase() || symbol,
+          country: input.country?.trim().toUpperCase() ?? null,
+          assetClass: input.assetClass ?? InstrumentAssetClass.EQUITY,
+          priceSource: InstrumentPriceSource.MANUAL,
+          // los benchmarks se refrescan siempre, tenga o no posiciones el usuario
+          needsDailyPrice: input.benchmarkKey != null,
+        }),
+      );
     });
   }
 
@@ -129,6 +135,21 @@ export class InstrumentsService {
       instrument.country = changes.country.trim().toUpperCase();
     }
     return this.instrumentsRepository.save(instrument);
+  }
+
+  // Resuelve el símbolo de un bróker contra el catálogo, sin crear nada. Suelen
+  // traer sufijos ("AAPL.US", "AAPL/USD"), así que se prueba también la raíz.
+  async findByBrokerSymbol(hint: string): Promise<Instrument | null> {
+    const symbol = hint.trim().toUpperCase();
+    for (const candidate of [symbol, symbol.split(/[./]/)[0]]) {
+      const found = await this.instrumentsRepository.findOne({
+        where: { symbol: candidate },
+      });
+      if (found) {
+        return found;
+      }
+    }
+    return null;
   }
 
   // Busca por símbolo y lo crea si no existe. En la fase 1 no hay proveedor de

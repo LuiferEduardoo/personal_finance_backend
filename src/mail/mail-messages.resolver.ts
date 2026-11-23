@@ -31,7 +31,7 @@ export class MailMessagesResolver {
 
   @Mutation(() => MailMessage, {
     description:
-      'Reprocesa un correo fallido (p. ej. tras liberar cupo en la tarjeta)',
+      'Reprocesa un correo fallido (p. ej. tras liberar cupo en la tarjeta o corregir la contraseña del PDF)',
   })
   retryMailMessage(
     @CurrentUser() user: Principal,

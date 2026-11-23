@@ -78,3 +78,39 @@ describe('InstrumentsService.create', () => {
     expect(result.id).toBe('existing-id');
   });
 });
+
+describe('InstrumentsService.findByBrokerSymbol', () => {
+  function setup(catalog: string[]) {
+    const service = new InstrumentsService(
+      {
+        findOne: jest.fn(({ where }: { where: { symbol: string } }) =>
+          Promise.resolve(
+            catalog.includes(where.symbol)
+              ? { id: `id-${where.symbol}`, symbol: where.symbol }
+              : null,
+          ),
+        ),
+      } as never,
+      {} as never,
+    );
+    return service;
+  }
+
+  it('prefiere el símbolo exacto del bróker sobre su raíz', async () => {
+    const found = await setup(['NVDA', 'NVDA.US']).findByBrokerSymbol(
+      ' nvda.us ',
+    );
+    expect(found?.id).toBe('id-NVDA.US');
+  });
+
+  it('sin coincidencia exacta prueba la raíz, sin el sufijo de mercado', async () => {
+    const found = await setup(['CSPX']).findByBrokerSymbol('CSPX.UK');
+    expect(found?.id).toBe('id-CSPX');
+  });
+
+  it('no crea nada si no lo conoce', async () => {
+    await expect(
+      setup(['NVDA']).findByBrokerSymbol('BRKB.US'),
+    ).resolves.toBeNull();
+  });
+});

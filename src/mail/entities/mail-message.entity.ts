@@ -1,4 +1,4 @@
-import { Field, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
+import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import {
   Column,
   CreateDateColumn,
@@ -102,6 +102,12 @@ export class MailMessage {
   @Field(() => ID, { nullable: true })
   @Column({ name: 'expense_id', type: 'uuid', nullable: true })
   expenseId: string | null;
+
+  // solo confirmaciones de órdenes: operaciones que este correo sumó al libro.
+  // Un correo no da gasto, por eso expenseId queda null.
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'operations_recorded', type: 'int', nullable: true })
+  operationsRecorded: number | null;
 
   @Field()
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

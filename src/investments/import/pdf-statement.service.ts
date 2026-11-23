@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { PDFParse } from 'pdf-parse';
+import { PasswordException, PDFParse } from 'pdf-parse';
 import { InvestmentTransactionType } from '../../common/enums/investment-transaction-type.enum';
 import { InvestmentTransactionDraft } from '../dto/import-batch-draft.dto';
 import {
@@ -21,6 +21,10 @@ const CHARS_PER_CHUNK = 12_000;
 const MAX_CHUNKS = 20;
 // Por debajo de esto el PDF no tiene capa de texto: es un escaneo.
 const MIN_TEXT_LENGTH = 40;
+
+// Falta la contraseña del PDF o no es la correcta: el archivo está bien, lo que
+// hay que corregir es la configuración.
+export class PdfPasswordException extends BadRequestException {}
 
 // Extrae operaciones de un PDF. Determinista primero, LLM después:
 // pdf-parse saca el texto y, si el statement no tiene una forma tabular
@@ -55,8 +59,14 @@ export class PdfStatementService {
 
   // pdf-parse v2 expone una clase, no la función por defecto de la v1.
   // El parser hay que destruirlo siempre: deja un worker de pdfjs vivo.
-  async extractText(buffer: Buffer): Promise<{ text: string; pages: number }> {
-    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  async extractText(
+    buffer: Buffer,
+    password?: string,
+  ): Promise<{ text: string; pages: number }> {
+    const parser = new PDFParse({
+      data: new Uint8Array(buffer),
+      ...(password ? { password } : {}),
+    });
     let raw = '';
     let pages = 0;
     try {
@@ -64,8 +74,17 @@ export class PdfStatementService {
       raw = result.text ?? '';
       pages = result.pages?.length ?? 0;
     } catch (error) {
+      if (error instanceof PasswordException) {
+        throw new PdfPasswordException(
+          password
+            ? 'La contraseña configurada no abre el PDF: es incorrecta'
+            : 'El PDF está protegido con contraseña y no se indicó ninguna',
+        );
+      }
+      const reason = (error as Error).message;
+      // la contraseña nunca llega a un mensaje, aunque el lector la repitiera
       throw new BadRequestException(
-        `No se pudo leer el PDF: ${(error as Error).message}`,
+        `No se pudo leer el PDF: ${password ? reason.split(password).join('***') : reason}`,
       );
     } finally {
       await parser.destroy().catch(() => undefined);

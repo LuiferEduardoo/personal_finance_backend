@@ -18,6 +18,7 @@ import { GmailApi, GmailClientService } from './gmail/gmail-client.service';
 import { MailConnectionsService } from './mail-connections.service';
 import { MailIngestionService } from './mail-ingestion.service';
 import { ParsedInvoice } from './parsing/ubl-invoice.parser';
+import { XtbOrderConfirmationsService } from './xtb-order-confirmations.service';
 
 const D1_XML = readFileSync(
   join(__dirname, 'parsing', '__fixtures__', 'd1-attached-document.xml'),
@@ -120,6 +121,7 @@ function setup(options: {
       jest.fn().mockResolvedValue({ id: 'expense-1', categoryId: null }),
     updateCategoryIfUnchanged: jest.fn().mockResolvedValue(true),
   };
+  const xtbOrders = { record: jest.fn() };
   // la cola real: los tests esperan a que termine con queue.idle()
   const queue = new CategorizationQueue();
 
@@ -133,6 +135,7 @@ function setup(options: {
     expensesService as unknown as ExpensesService,
     classifier as unknown as CategoryClassifierService,
     queue,
+    xtbOrders as unknown as XtbOrderConfirmationsService,
   );
   return {
     classifier,
@@ -143,6 +146,7 @@ function setup(options: {
     gmailClient,
     articlesService,
     expensesService,
+    xtbOrders,
   };
 }
 
@@ -549,6 +553,21 @@ describe('MailIngestionService: clasificación en segundo plano', () => {
       'expense-1',
       null,
       'cat-servicios',
+    );
+  });
+});
+
+describe('MailIngestionService: el tipo de remitente decide el camino', () => {
+  it('un remitente sin tipo de XTB sigue por facturas y no pide PDF', async () => {
+    const ctx = setup({});
+
+    await ctx.service.ingest(connection, api, 'gmail-1', senders);
+    await ctx.queue.idle();
+
+    expect(ctx.gmailClient.getInvoiceAttachments).toHaveBeenCalledTimes(1);
+    expect(ctx.xtbOrders.record).not.toHaveBeenCalled();
+    expect(lastStatus(ctx.messagesRepository)).not.toHaveProperty(
+      'operationsRecorded',
     );
   });
 });
