@@ -11,6 +11,7 @@ import { AppService } from './app.service';
 import { ApiKeysModule } from './api-keys/api-keys.module';
 import { ArticlesModule } from './articles/articles.module';
 import { AuthModule } from './auth/auth.module';
+import { BudgetsModule } from './budgets/budgets.module';
 import { CategoriesModule } from './categories/categories.module';
 import { formatError } from './common/graphql/format-error';
 import { databaseConfig } from './config/database.config';
@@ -62,6 +63,7 @@ import { UsersModule } from './users/users.module';
     NotificationsModule,
     InvestmentsModule,
     MailModule,
+    BudgetsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],

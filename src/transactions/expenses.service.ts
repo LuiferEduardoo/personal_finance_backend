@@ -14,6 +14,7 @@ import {
   Repository,
 } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
+import { BudgetAlertsService } from '../budgets/budget-alerts.service';
 import { Article, ArticleType } from '../articles/entities/article.entity';
 import { resolveDiscount } from '../common/discount';
 import { Recurrence } from '../common/enums/recurrence.enum';
@@ -51,6 +52,7 @@ export class ExpensesService {
     private readonly purchasesService: PurchasesService,
     private readonly accountsService: PaymentMethodsService,
     private readonly dataSource: DataSource,
+    private readonly budgetAlerts: BudgetAlertsService,
   ) {}
 
   findAll(
@@ -134,7 +136,7 @@ export class ExpensesService {
     }
 
     if (installmentCount > 1) {
-      return this.createInInstallments(
+      const first = await this.createInInstallments(
         userId,
         {
           ...rest,
@@ -146,6 +148,9 @@ export class ExpensesService {
         },
         resolved,
       );
+      // las cuotas de meses futuros las revisa el cron cuando llegue su mes
+      this.checkBudgets(userId, first);
+      return first;
     }
 
     if (accountId) {
@@ -171,7 +176,9 @@ export class ExpensesService {
       return created;
     });
 
-    return this.findOne(saved.id, userId);
+    const result = await this.findOne(saved.id, userId);
+    this.checkBudgets(userId, result);
+    return result;
   }
 
   async update(userId: string, input: UpdateExpenseInput): Promise<Expense> {
@@ -253,7 +260,9 @@ export class ExpensesService {
       }
       await manager.save(Expense, expense);
     });
-    return this.findOne(id, userId);
+    const result = await this.findOne(id, userId);
+    this.checkBudgets(userId, result);
+    return result;
   }
 
   /**
@@ -279,7 +288,21 @@ export class ExpensesService {
         expected,
       })
       .execute();
-    return (result.affected ?? 0) > 0;
+    const changed = (result.affected ?? 0) > 0;
+    if (changed && categoryId) {
+      const expense = await this.expensesRepository.findOne({
+        select: { id: true, occurredOn: true },
+        where: { id, userId },
+      });
+      if (expense) {
+        this.budgetAlerts.scheduleExpenseCheck(
+          userId,
+          categoryId,
+          expense.occurredOn,
+        );
+      }
+    }
+    return changed;
   }
 
   async remove(id: string, userId: string): Promise<boolean> {
@@ -310,6 +333,16 @@ export class ExpensesService {
       await manager.remove(Expense, expense);
     });
     return true;
+  }
+
+  // avisos de presupuesto en segundo plano: nunca bloquean ni hacen fallar el
+  // registro del gasto
+  private checkBudgets(userId: string, expense: Expense): void {
+    this.budgetAlerts.scheduleExpenseCheck(
+      userId,
+      expense.categoryId,
+      expense.occurredOn,
+    );
   }
 
   private validateInstallmentInput(
