@@ -92,6 +92,12 @@ export class MailSendersService {
     if (input.backfillFrom && !DATE.test(input.backfillFrom)) {
       throw new BadRequestException('backfillFrom debe ser YYYY-MM-DD');
     }
+    const kind = input.kind ?? MailSenderKind.INVOICE;
+    this.assertXtbReady(
+      kind,
+      input.investmentAccountId,
+      input.attachmentPassword !== undefined,
+    );
     const emailAddress = this.normalizeEmail(input.emailAddress);
     await this.assertUnique(input.connectionId, emailAddress);
 
@@ -102,7 +108,7 @@ export class MailSendersService {
       this.sendersRepository.create({
         id,
         ...this.sealedPassword(id, input.attachmentPassword),
-        kind: input.kind ?? MailSenderKind.INVOICE,
+        kind,
         investmentAccountId: input.investmentAccountId ?? null,
         userId,
         connectionId: input.connectionId,
@@ -152,6 +158,13 @@ export class MailSendersService {
     if (input.active !== undefined && input.active !== null) {
       sender.active = input.active;
     }
+    this.assertXtbReady(
+      sender.kind,
+      sender.investmentAccountId,
+      input.attachmentPassword !== undefined
+        ? input.attachmentPassword !== null
+        : !!sender.attachmentPasswordCiphertext,
+    );
     // update y no save: con las relaciones cargadas, save volvería a
     // escribir los ids viejos desde defaultAccount/defaultCategory
     await this.sendersRepository.update(
@@ -230,6 +243,26 @@ export class MailSendersService {
     );
     if (input.defaultCategoryId) {
       await this.categoriesService.findOne(input.defaultCategoryId, userId);
+    }
+  }
+
+  // Sin cuenta de inversión o sin contraseña, todo correo de XTB terminaría en
+  // FAILED: se rechaza al guardar el remitente en vez de descubrirlo después.
+  private assertXtbReady(
+    kind: MailSenderKind,
+    investmentAccountId: string | null | undefined,
+    hasPassword: boolean,
+  ): void {
+    if (kind !== MailSenderKind.XTB_ORDER_CONFIRMATION) return;
+    if (!investmentAccountId) {
+      throw new BadRequestException(
+        'Un remitente de XTB necesita una cuenta de inversión',
+      );
+    }
+    if (!hasPassword) {
+      throw new BadRequestException(
+        'Un remitente de XTB necesita la contraseña del PDF',
+      );
     }
   }
 

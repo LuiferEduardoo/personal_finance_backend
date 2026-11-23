@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Category } from '../categories/entities/category.entity';
 import { TransactionKind } from '../common/enums/transaction-kind.enum';
+import { User } from '../users/entities/user.entity';
 import { BudgetAlertsService } from './budget-alerts.service';
 import { currentPeriod } from './budget-period';
 import { CategoryBudgetsService } from './category-budgets.service';
@@ -18,6 +19,7 @@ describe('CategoryBudgetsService', () => {
   function setup({
     category = expenseCategory as Category | null,
     existing = null as CategoryBudget | null,
+    baseCurrency = 'COP',
   } = {}) {
     const budgetsRepository = {
       findOne: jest.fn().mockResolvedValue(existing),
@@ -30,6 +32,9 @@ describe('CategoryBudgetsService', () => {
     const categoriesRepository = {
       findOne: jest.fn().mockResolvedValue(category),
     };
+    const usersRepository = {
+      findOne: jest.fn().mockResolvedValue({ id: 'user-1', baseCurrency }),
+    };
     const alerts = {
       resetAlert: jest.fn().mockResolvedValue(undefined),
       checkBudget: jest.fn().mockResolvedValue(undefined),
@@ -40,6 +45,7 @@ describe('CategoryBudgetsService', () => {
     const service = new CategoryBudgetsService(
       budgetsRepository as unknown as Repository<CategoryBudget>,
       categoriesRepository as unknown as Repository<Category>,
+      usersRepository as unknown as Repository<User>,
       alerts as unknown as BudgetAlertsService,
     );
     return { service, budgetsRepository, categoriesRepository, alerts };
@@ -69,6 +75,46 @@ describe('CategoryBudgetsService', () => {
     });
     expect(ctx.alerts.resetAlert).not.toHaveBeenCalled();
     expect(ctx.alerts.checkBudget).toHaveBeenCalledWith('budget-1');
+  });
+
+  it('guarda el presupuesto en la moneda base del usuario', async () => {
+    const ctx = setup({ baseCurrency: 'USD' });
+    await ctx.service.set('user-1', {
+      categoryId: 'cat-mercado',
+      amount: 100,
+      currency: 'usd',
+    });
+    expect(ctx.budgetsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'USD' }),
+    );
+  });
+
+  it('rechaza una moneda distinta de la base sin guardar', async () => {
+    const ctx = setup();
+    await expect(
+      ctx.service.set('user-1', {
+        categoryId: 'cat-mercado',
+        amount: 100,
+        currency: 'USD',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(ctx.budgetsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('pasa a la moneda base un presupuesto viejo en otra moneda', async () => {
+    const ctx = setup({
+      existing: {
+        id: 'budget-1',
+        userId: 'user-1',
+        categoryId: 'cat-mercado',
+        amount: 100,
+        currency: 'USD',
+      } as CategoryBudget,
+    });
+    await ctx.service.set('user-1', { categoryId: 'cat-mercado', amount: 90 });
+    expect(ctx.budgetsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'COP' }),
+    );
   });
 
   it('rechaza una categoría que no es de gasto', async () => {

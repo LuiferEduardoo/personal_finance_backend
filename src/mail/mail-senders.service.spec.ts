@@ -32,7 +32,8 @@ function setup(stored: Partial<MailSender> = {}) {
     kind: MailSenderKind.XTB_ORDER_CONFIRMATION,
     defaultAccountId: null,
     defaultCategoryId: null,
-    investmentAccountId: null,
+    investmentAccountId: 'inv-account-1',
+    attachmentPasswordCiphertext: Buffer.from('sellada'),
     active: true,
     ...stored,
   } as MailSender;
@@ -117,8 +118,8 @@ describe('MailSendersService: contraseña de los adjuntos', () => {
     expect(changes).not.toHaveProperty('attachmentPasswordCiphertext');
   });
 
-  it('actualizar con null la borra; con texto la reemplaza cifrada', async () => {
-    const { service, repository } = setup();
+  it('actualizar con null la borra (si no es de XTB)', async () => {
+    const { service, repository } = setup({ kind: MailSenderKind.INVOICE });
 
     await service.update('user-1', {
       id: 'sender-1',
@@ -129,12 +130,16 @@ describe('MailSendersService: contraseña de los adjuntos', () => {
       attachmentPasswordIv: null,
       attachmentPasswordTag: null,
     });
+  });
+
+  it('actualizar con texto la reemplaza cifrada', async () => {
+    const { service, repository } = setup();
 
     await service.update('user-1', {
       id: 'sender-1',
       attachmentPassword: PASSWORD,
     });
-    const changes = repository.update.mock.calls[1][1] as MailSender;
+    const changes = repository.update.mock.calls[0][1] as MailSender;
     expect(JSON.stringify(changes)).not.toContain(PASSWORD);
     expect(
       service.attachmentPasswordOf({
@@ -166,6 +171,64 @@ describe('MailSendersService: contraseña de los adjuntos', () => {
     expect(repository.update.mock.calls[0][1]).toMatchObject({
       investmentAccountId: 'inv-account-2',
     });
+  });
+});
+
+describe('MailSendersService: un remitente de XTB debe poder procesarse', () => {
+  it('al crear exige la cuenta de inversión', async () => {
+    const { service, repository } = setup();
+    await expect(
+      service.create('user-1', {
+        ...createInput,
+        investmentAccountId: undefined,
+        attachmentPassword: PASSWORD,
+      }),
+    ).rejects.toThrow('cuenta de inversión');
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it('al crear exige la contraseña del PDF', async () => {
+    const { service, repository } = setup();
+    await expect(service.create('user-1', createInput)).rejects.toThrow(
+      'contraseña del PDF',
+    );
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it('no deja borrar la contraseña de un remitente de XTB', async () => {
+    const { service, repository } = setup();
+    await expect(
+      service.update('user-1', { id: 'sender-1', attachmentPassword: null }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('no deja quitar la cuenta de inversión de un remitente de XTB', async () => {
+    const { service, repository } = setup();
+    await expect(
+      service.update('user-1', { id: 'sender-1', investmentAccountId: null }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('pasar un remitente de facturas a XTB exige cuenta y contraseña', async () => {
+    const { service } = setup({
+      kind: MailSenderKind.INVOICE,
+      investmentAccountId: null,
+      attachmentPasswordCiphertext: null,
+    });
+    await expect(
+      service.update('user-1', {
+        id: 'sender-1',
+        kind: MailSenderKind.XTB_ORDER_CONFIRMATION,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('editar otro campo conserva la contraseña guardada y pasa', async () => {
+    const { service, repository } = setup();
+    await service.update('user-1', { id: 'sender-1', merchantName: 'XTB 2' });
+    expect(repository.update).toHaveBeenCalled();
   });
 });
 

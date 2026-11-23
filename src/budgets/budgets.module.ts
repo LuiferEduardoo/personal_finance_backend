@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Category } from '../categories/entities/category.entity';
+import { User } from '../users/entities/user.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { BudgetAlertsCron } from './budget-alerts.cron';
 import { BudgetAlertsService } from './budget-alerts.service';
@@ -14,7 +15,12 @@ import { CategoryBudget } from './entities/category-budget.entity';
 // TransactionsModule puede importarlo para disparar los avisos sin ciclo.
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CategoryBudget, CategoryBudgetAlert, Category]),
+    TypeOrmModule.forFeature([
+      CategoryBudget,
+      CategoryBudgetAlert,
+      Category,
+      User,
+    ]),
     NotificationsModule,
   ],
   providers: [

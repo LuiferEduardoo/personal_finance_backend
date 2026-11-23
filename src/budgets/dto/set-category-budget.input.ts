@@ -8,6 +8,10 @@ export class SetCategoryBudgetInput {
   @Field(() => Float, { description: 'Tope mensual, mayor que 0' })
   amount: number;
 
-  @Field({ nullable: true, description: 'Por defecto COP' })
+  @Field({
+    nullable: true,
+    description:
+      'Opcional; debe ser la moneda base del usuario (es la que se usa por defecto)',
+  })
   currency?: string;
 }

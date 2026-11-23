@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { Category } from '../categories/entities/category.entity';
 import { TransactionKind } from '../common/enums/transaction-kind.enum';
+import { User } from '../users/entities/user.entity';
 import { BudgetAlertsService } from './budget-alerts.service';
 import { currentPeriod, isValidPeriod } from './budget-period';
 import { CategoryBudgetStatus } from './dto/category-budget-status';
@@ -20,6 +21,8 @@ export class CategoryBudgetsService {
     private readonly budgetsRepository: Repository<CategoryBudget>,
     @InjectRepository(Category)
     private readonly categoriesRepository: Repository<Category>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
     private readonly alerts: BudgetAlertsService,
   ) {}
 
@@ -59,6 +62,12 @@ export class CategoryBudgetsService {
       throw new BadRequestException('El presupuesto debe ser mayor que 0');
     }
     const category = await this.findExpenseCategory(input.categoryId, userId);
+    const currency = await this.baseCurrencyOf(userId);
+    if (input.currency && input.currency.toUpperCase() !== currency) {
+      throw new BadRequestException(
+        `El presupuesto va en tu moneda base (${currency}): lo gastado se mide en ella`,
+      );
+    }
     const period = currentPeriod();
 
     const existing = await this.budgetsRepository.findOne({
@@ -69,9 +78,8 @@ export class CategoryBudgetsService {
       existing ??
       this.budgetsRepository.create({ userId, categoryId: category.id });
     budget.amount = input.amount;
-    if (input.currency !== undefined || !existing) {
-      budget.currency = (input.currency ?? 'COP').toUpperCase();
-    }
+    // siempre la moneda base: lo gastado se suma como amount * exchange_rate
+    budget.currency = currency;
     const saved = await this.budgetsRepository.save(budget);
     if (raised) {
       await this.alerts.resetAlert(saved.id, period);
@@ -92,6 +100,14 @@ export class CategoryBudgetsService {
       );
     }
     return true;
+  }
+
+  private async baseCurrencyOf(userId: string): Promise<string> {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+      select: { id: true, baseCurrency: true },
+    });
+    return user?.baseCurrency ?? 'COP';
   }
 
   // las del sistema (userId null) las ve cualquiera; las propias, solo su dueño
