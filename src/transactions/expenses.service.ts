@@ -212,6 +212,7 @@ export class ExpensesService {
 
   async update(userId: string, input: UpdateExpenseInput): Promise<Expense> {
     const expense = await this.findOne(input.id, userId);
+    this.assertNotLoanPayment(expense);
     if (expense.planId) {
       // cualquier cuota edita la compra entera (el plan)
       return this.updateInstallmentPurchase(userId, expense, input);
@@ -552,6 +553,7 @@ export class ExpensesService {
 
   async remove(id: string, userId: string): Promise<boolean> {
     const expense = await this.findOne(id, userId);
+    this.assertNotLoanPayment(expense);
     if (expense.planId) {
       const planExpenses = await this.expensesRepository.find({
         where: { planId: expense.planId, userId },
@@ -582,6 +584,14 @@ export class ExpensesService {
 
   // avisos de presupuesto en segundo plano: nunca bloquean ni hacen fallar el
   // registro del gasto
+  private assertNotLoanPayment(expense: Expense): void {
+    if (expense.loanId) {
+      throw new BadRequestException(
+        'Este gasto es un pago de un crédito; gestiónalo desde el crédito',
+      );
+    }
+  }
+
   // usa la transacción de quien llama o abre una propia
   private inTransaction<T>(
     manager: EntityManager | undefined,

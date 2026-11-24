@@ -17,6 +17,7 @@ import { Category } from '../../categories/entities/category.entity';
 import { Recurrence } from '../../common/enums/recurrence.enum';
 import { NumericTransformer } from '../../common/transformers/numeric.transformer';
 import { Installment } from '../../installments/entities/installment.entity';
+import { Loan } from '../../loans/entities/loan.entity';
 import { InstallmentPlan } from '../../installments/entities/installment-plan.entity';
 import { PaymentMethod } from '../../payment-methods/entities/payment-method.entity';
 import { Tag } from '../../tags/entities/tag.entity';
@@ -78,6 +79,21 @@ export class Expense {
   @Field(() => ID, { nullable: true })
   @Column({ name: 'installment_id', type: 'uuid', nullable: true })
   installmentId: string | null;
+
+  // pago de cuota o abono de un crédito: solo se maneja desde el crédito
+  // (editarlo o borrarlo aquí descuadraría su tabla)
+  @ManyToOne(() => Loan, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'loan_id', foreignKeyConstraintName: 'FK_expenses_loan' })
+  loan: Loan | null;
+
+  @Field(() => ID, {
+    nullable: true,
+    description:
+      'Crédito al que pertenece este pago; si tiene valor, el gasto no se puede editar ni borrar',
+  })
+  @Index('idx_expenses_loan')
+  @Column({ name: 'loan_id', type: 'uuid', nullable: true })
+  loanId: string | null;
 
   // líneas del gasto: cada una un artículo con su precio y cantidad.
   // el importe (amount) = suma de los subtotales de los ítems.

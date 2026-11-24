@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource, FindOperator, Repository } from 'typeorm';
 import { CategoriesService } from '../categories/categories.service';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
+import { Expense } from '../transactions/entities/expense.entity';
 import { ExpensesService } from '../transactions/expenses.service';
 import { LoanCharge } from './entities/loan-charge.entity';
 import {
@@ -78,6 +79,8 @@ function setup(options: { installments?: Partial<LoanInstallment>[] } = {}) {
     update: jest.fn((entity: unknown, id: string, patch: object) => {
       if (entity === Loan) {
         Object.assign(state.loan!, patch);
+      } else if (entity === Expense) {
+        // el gasto vive en ExpensesService (mockeado)
       } else {
         Object.assign(
           state.installments.find((i) => i.id === id)!,
@@ -266,6 +269,9 @@ describe('LoansService.payInstallment', () => {
     expect(ctx.expensesService.scheduleBudgetCheck).toHaveBeenCalledWith(USER, {
       id: 'exp-1',
     });
+    expect(ctx.manager.update).toHaveBeenCalledWith(Expense, 'exp-1', {
+      loanId: 'loan-1',
+    });
     expect(paid).toMatchObject({
       status: LoanInstallmentStatus.PAID,
       paidOn: '2026-02-10',
@@ -388,6 +394,9 @@ describe('LoansService.prepay', () => {
       ctx.manager,
     );
     expect(ctx.state.prepayments).toHaveLength(1);
+    expect(ctx.manager.update).toHaveBeenCalledWith(Expense, 'exp-2', {
+      loanId: 'loan-1',
+    });
   });
 
   it('REDUCE_TERM conserva la cuota y acorta el plazo', async () => {

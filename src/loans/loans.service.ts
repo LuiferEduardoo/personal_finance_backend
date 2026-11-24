@@ -12,6 +12,7 @@ import {
   roundToCents,
 } from '../installments/installment-calculator';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
+import { Expense } from '../transactions/entities/expense.entity';
 import { ExpensesService } from '../transactions/expenses.service';
 import {
   CreateLoanInput,
@@ -343,6 +344,8 @@ export class LoansService {
         },
         manager,
       );
+      // marca el gasto como del crédito: no se edita ni borra desde Movimientos
+      await manager.update(Expense, created.id, { loanId: loan.id });
       await manager.update(LoanInstallment, current.id, {
         status: LoanInstallmentStatus.PAID,
         paidOn,
@@ -403,6 +406,8 @@ export class LoansService {
         },
         manager,
       );
+      // marca el gasto como del crédito: no se edita ni borra desde Movimientos
+      await manager.update(Expense, created.id, { loanId: loan.id });
       const charges = await manager.find(LoanCharge, {
         where: { loanId: loan.id },
       });

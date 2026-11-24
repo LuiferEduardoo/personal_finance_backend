@@ -431,6 +431,20 @@ describe('ExpensesService.update (compras a cuotas)', () => {
       expect(ctx.budgetAlerts.scheduleExpenseCheck).not.toHaveBeenCalled();
     });
 
+    it.each(['update', 'remove'] as const)(
+      'un pago de crédito no se puede %s desde Movimientos',
+      async (action) => {
+        const ctx = setup([{ ...single()[0], loanId: 'loan-1' }]);
+        const run =
+          action === 'update'
+            ? ctx.service.update(USER, { id: 'x1', amount: 1 })
+            : ctx.service.remove('x1', USER);
+        await expect(run).rejects.toThrow('gestiónalo desde el crédito');
+        expect(ctx.dataSource.transaction).not.toHaveBeenCalled();
+        expect(ctx.accountsService.adjustBalance).not.toHaveBeenCalled();
+      },
+    );
+
     it('sigue sin aceptar configuración de cuotas', async () => {
       const ctx = setup(single());
       await expect(
