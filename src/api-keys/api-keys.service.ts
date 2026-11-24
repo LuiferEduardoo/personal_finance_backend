@@ -45,6 +45,8 @@ const ALLOWED_API_SCOPES = new Set<ApiScope>([
   ApiScope.INVOICES_WRITE,
   ApiScope.INVESTMENTS_READ,
   ApiScope.INVESTMENTS_WRITE,
+  ApiScope.LOANS_READ,
+  ApiScope.LOANS_WRITE,
   ApiScope.MARKET_DATA_READ,
 ]);
 

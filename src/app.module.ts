@@ -18,6 +18,7 @@ import { databaseConfig } from './config/database.config';
 import { InstallmentsModule } from './installments/installments.module';
 import { InvestmentsModule } from './investments/investments.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { LoansModule } from './loans/loans.module';
 import { MailModule } from './mail/mail.module';
 import { MarketDataModule } from './market-data/market-data.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -64,6 +65,7 @@ import { UsersModule } from './users/users.module';
     InvestmentsModule,
     MailModule,
     BudgetsModule,
+    LoansModule,
   ],
   controllers: [AppController],
   providers: [AppService, AppResolver],

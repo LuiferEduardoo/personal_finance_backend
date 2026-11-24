@@ -90,8 +90,14 @@ export class ExpensesService {
     });
   }
 
-  async findOne(id: string, userId: string): Promise<Expense> {
-    const expense = await this.expensesRepository.findOne({
+  async findOne(
+    id: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<Expense> {
+    const repository =
+      manager?.getRepository(Expense) ?? this.expensesRepository;
+    const expense = await repository.findOne({
       where: { id, userId },
       relations: {
         category: true,
@@ -107,7 +113,17 @@ export class ExpensesService {
     return expense;
   }
 
-  async create(userId: string, input: CreateExpenseInput): Promise<Expense> {
+  /**
+   * Registra un gasto. Con `manager` corre dentro de la transacción de quien
+   * llama (p. ej. el pago de una cuota de crédito) y NO revisa presupuestos,
+   * porque el gasto aún no está confirmado: quien llama debe invocar
+   * `scheduleBudgetCheck` después del commit.
+   */
+  async create(
+    userId: string,
+    input: CreateExpenseInput,
+    manager?: EntityManager,
+  ): Promise<Expense> {
     const {
       items,
       amount,
@@ -141,6 +157,7 @@ export class ExpensesService {
 
     if (installmentCount > 1) {
       const first = await this.createInInstallments(
+        manager,
         userId,
         {
           ...rest,
@@ -153,12 +170,18 @@ export class ExpensesService {
         resolved,
       );
       // las cuotas de meses futuros las revisa el cron cuando llegue su mes
-      this.checkBudgets(userId, first);
+      if (!manager) {
+        this.scheduleBudgetCheck(userId, first);
+      }
       return first;
     }
 
     if (accountId) {
-      await this.accountsService.assertCreditAvailable(accountId, finalAmount);
+      await this.accountsService.assertCreditAvailable(
+        accountId,
+        finalAmount,
+        manager,
+      );
     }
 
     const expense = this.expensesRepository.create({
@@ -169,19 +192,21 @@ export class ExpensesService {
       amount: finalAmount,
       items: resolved.map((r) => this.buildItem(r)),
     });
-    const saved = await this.dataSource.transaction(async (manager) => {
-      const created = await manager.save(Expense, expense);
+    const saved = await this.inTransaction(manager, async (tx) => {
+      const created = await tx.save(Expense, expense);
       await this.accountsService.adjustBalance(
         accountId ?? null,
         -finalAmount,
-        manager,
+        tx,
       );
-      await this.registerInventoryPurchases(userId, created, resolved, manager);
+      await this.registerInventoryPurchases(userId, created, resolved, tx);
       return created;
     });
 
-    const result = await this.findOne(saved.id, userId);
-    this.checkBudgets(userId, result);
+    const result = await this.findOne(saved.id, userId, manager);
+    if (!manager) {
+      this.scheduleBudgetCheck(userId, result);
+    }
     return result;
   }
 
@@ -264,7 +289,7 @@ export class ExpensesService {
       await manager.save(Expense, expense);
     });
     const result = await this.findOne(id, userId);
-    this.checkBudgets(userId, result);
+    this.scheduleBudgetCheck(userId, result);
     return result;
   }
 
@@ -557,7 +582,16 @@ export class ExpensesService {
 
   // avisos de presupuesto en segundo plano: nunca bloquean ni hacen fallar el
   // registro del gasto
-  private checkBudgets(userId: string, expense: Expense): void {
+  // usa la transacción de quien llama o abre una propia
+  private inTransaction<T>(
+    manager: EntityManager | undefined,
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return manager ? work(manager) : this.dataSource.transaction(work);
+  }
+
+  // revisa en segundo plano los presupuestos del mes del gasto
+  scheduleBudgetCheck(userId: string, expense: Expense): void {
     this.budgetAlerts.scheduleExpenseCheck(
       userId,
       expense.categoryId,
@@ -595,6 +629,7 @@ export class ExpensesService {
   }
 
   private async createInInstallments(
+    manager: EntityManager | undefined,
     userId: string,
     input: Omit<CreateExpenseInput, 'items'> & {
       amount: number;
@@ -618,9 +653,11 @@ export class ExpensesService {
     await this.accountsService.assertCreditAvailable(
       input.accountId,
       financedTotal,
+      manager,
     );
 
-    const firstExpenseId = await this.dataSource.transaction(
+    const firstExpenseId = await this.inTransaction(
+      manager,
       async (manager) => {
         const plan = await manager.save(
           InstallmentPlan,
@@ -683,7 +720,7 @@ export class ExpensesService {
       },
     );
 
-    return this.findOne(firstExpenseId, userId);
+    return this.findOne(firstExpenseId, userId, manager);
   }
 
   private async resolveItems(

@@ -396,6 +396,41 @@ describe('ExpensesService.update (compras a cuotas)', () => {
       expect(ctx.manager.update).not.toHaveBeenCalled();
     });
 
+    it('create con manager usa esa transacción y no revisa presupuestos', async () => {
+      const ctx = setup(single());
+      const outer = {
+        ...ctx.manager,
+        getRepository: jest.fn(() => ({
+          findOne: jest.fn().mockResolvedValue({ id: 'new-1' }),
+        })),
+      };
+
+      const created = await ctx.service.create(
+        USER,
+        {
+          description: 'Cuota crédito',
+          amount: 100,
+          accountId: 'acc-1',
+          occurredOn: '2026-11-10',
+        },
+        outer as never,
+      );
+
+      expect(created).toEqual({ id: 'new-1' });
+      expect(ctx.dataSource.transaction).not.toHaveBeenCalled();
+      expect(ctx.accountsService.assertCreditAvailable).toHaveBeenCalledWith(
+        'acc-1',
+        100,
+        outer,
+      );
+      expect(ctx.accountsService.adjustBalance).toHaveBeenCalledWith(
+        'acc-1',
+        -100,
+        outer,
+      );
+      expect(ctx.budgetAlerts.scheduleExpenseCheck).not.toHaveBeenCalled();
+    });
+
     it('sigue sin aceptar configuración de cuotas', async () => {
       const ctx = setup(single());
       await expect(

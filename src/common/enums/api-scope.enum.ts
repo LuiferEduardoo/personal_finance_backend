@@ -37,6 +37,9 @@ export enum ApiScope {
   INVESTMENTS_READ = 'investments:read',
   INVESTMENTS_WRITE = 'investments:write',
 
+  LOANS_READ = 'loans:read',
+  LOANS_WRITE = 'loans:write',
+
   MARKET_DATA_READ = 'market-data:read',
 }
 
