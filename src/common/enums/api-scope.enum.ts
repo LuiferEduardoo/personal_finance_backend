@@ -41,6 +41,9 @@ export enum ApiScope {
   LOANS_WRITE = 'loans:write',
 
   MARKET_DATA_READ = 'market-data:read',
+
+  NOTIFICATIONS_READ = 'notifications:read',
+  NOTIFICATIONS_WRITE = 'notifications:write',
 }
 
 registerEnumType(ApiScope, {

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ArticlesModule } from '../articles/articles.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { RecurringExpenseItem } from './entities/recurring-expense-item.entity';
 import { RecurringExpense } from './entities/recurring-expense.entity';
@@ -12,6 +13,7 @@ import { RecurringExpensesService } from './recurring-expenses.service';
   imports: [
     TypeOrmModule.forFeature([RecurringExpense, RecurringExpenseItem]),
     ArticlesModule,
+    NotificationsModule,
     TransactionsModule,
   ],
   providers: [

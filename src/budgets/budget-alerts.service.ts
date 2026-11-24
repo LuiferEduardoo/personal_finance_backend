@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { EmailService } from '../notifications/email.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { currentPeriod, formatPeriod, periodOf } from './budget-period';
 import { CategoryBudgetAlert } from './entities/category-budget-alert.entity';
 import { CategoryBudget } from './entities/category-budget.entity';
@@ -11,12 +13,17 @@ interface SpentRow {
   spent: string;
 }
 
+// a partir de este porcentaje del tope se avisa (solo en la app) que se acerca
+export const BUDGET_NEAR_RATIO = 0.8;
+
 /**
  * Avisa por correo cuando el gasto del mes de una categoría (con sus
  * subcategorías) supera su presupuesto. Un aviso por presupuesto y mes:
  * `category_budget_alerts` con índice único hace de cerrojo, así que volver a
  * evaluar es idempotente (lo hace cada gasto y, de respaldo, el cron diario).
- * Nunca lanza hacia quien registra el gasto.
+ * Nunca lanza hacia quien registra el gasto. Además deja una notificación en
+ * la app al superarlo (BUDGET_EXCEEDED) y al llegar al 80 % (BUDGET_NEAR, sin
+ * correo), deduplicadas por presupuesto y mes con su `dedupeKey`.
  */
 @Injectable()
 export class BudgetAlertsService {
@@ -28,6 +35,7 @@ export class BudgetAlertsService {
     @InjectRepository(CategoryBudgetAlert)
     private readonly alertsRepository: Repository<CategoryBudgetAlert>,
     private readonly email: EmailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -148,9 +156,15 @@ export class BudgetAlertsService {
   }
 
   // borra el aviso del mes para que se pueda volver a avisar (p. ej. al subir
-  // el monto del presupuesto)
+  // el monto del presupuesto). También borra sus notificaciones del mes, leídas
+  // o no: hablan de un tope que ya no aplica y su dedupeKey impediría volver a
+  // notificar.
   async resetAlert(budgetId: string, period: string): Promise<void> {
     await this.alertsRepository.delete({ budgetId, period });
+    await this.notifications.removeByDedupeKeys([
+      exceededKey(budgetId, period),
+      nearKey(budgetId, period),
+    ]);
   }
 
   private async evaluate(
@@ -165,8 +179,13 @@ export class BudgetAlertsService {
     for (const budget of candidates) {
       const spent = spentByBudget.get(budget.id) ?? 0;
       if (spent <= budget.amount) {
+        if (spent >= budget.amount * BUDGET_NEAR_RATIO) {
+          await this.notifyNear(budget, period, spent);
+        }
         continue;
       }
+      // independiente del correo: si Brevo falla, la app igual avisa
+      await this.notifyExceeded(budget, period, spent);
       try {
         await this.alert(budget, period, spent);
       } catch (error) {
@@ -205,16 +224,46 @@ export class BudgetAlertsService {
     }
   }
 
+  // notify nunca lanza
+  private async notifyExceeded(
+    budget: CategoryBudget,
+    period: string,
+    spent: number,
+  ): Promise<void> {
+    const money = moneyFormatter(budget.currency);
+    const category = budget.category?.name ?? 'una categoría';
+    await this.notifications.notify(budget.userId, {
+      type: NotificationType.BUDGET_EXCEEDED,
+      title: `Superaste tu presupuesto de ${category}`,
+      body: `En ${formatPeriod(period)} llevas ${money(spent)} en ${category} y tu presupuesto es de ${money(budget.amount)}: te excediste en ${money(spent - budget.amount)}.`,
+      link: '/presupuestos',
+      dedupeKey: exceededKey(budget.id, period),
+    });
+  }
+
+  private async notifyNear(
+    budget: CategoryBudget,
+    period: string,
+    spent: number,
+  ): Promise<void> {
+    const money = moneyFormatter(budget.currency);
+    const category = budget.category?.name ?? 'una categoría';
+    const percentage = Math.floor((spent / budget.amount) * 100);
+    await this.notifications.notify(budget.userId, {
+      type: NotificationType.BUDGET_NEAR,
+      title: `Vas en el ${percentage} % de tu presupuesto de ${category}`,
+      body: `En ${formatPeriod(period)} llevas ${money(spent)} en ${category} de un presupuesto de ${money(budget.amount)}.`,
+      link: '/presupuestos',
+      dedupeKey: nearKey(budget.id, period),
+    });
+  }
+
   private async sendEmail(
     budget: CategoryBudget,
     period: string,
     spent: number,
   ): Promise<void> {
-    const money = (value: number) =>
-      value.toLocaleString('es-CO', {
-        style: 'currency',
-        currency: budget.currency,
-      });
+    const money = moneyFormatter(budget.currency);
     const category = escapeHtml(budget.category?.name ?? 'una categoría');
     const month = formatPeriod(period);
     await this.email.send(
@@ -223,6 +272,20 @@ export class BudgetAlertsService {
       `<p>Hola ${escapeHtml(budget.user.firstName)},</p><p>En <strong>${month}</strong> llevas gastado <strong>${money(spent)}</strong> en <strong>${category}</strong>, y tu presupuesto es de <strong>${money(budget.amount)}</strong>.</p><p>Te excediste en <strong>${money(spent - budget.amount)}</strong>.</p>`,
     );
   }
+}
+
+function exceededKey(budgetId: string, period: string): string {
+  return `budget-exceeded:${budgetId}:${period}`;
+}
+
+function nearKey(budgetId: string, period: string): string {
+  return `budget-near:${budgetId}:${period}`;
+}
+
+// el mismo formato del correo, en la moneda base del presupuesto
+function moneyFormatter(currency: string): (value: number) => string {
+  return (value: number) =>
+    value.toLocaleString('es-CO', { style: 'currency', currency });
 }
 
 function escapeHtml(value: string): string {

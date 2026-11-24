@@ -1,5 +1,7 @@
 import { Repository } from 'typeorm';
 import { EmailService } from '../notifications/email.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { BudgetAlertsService } from './budget-alerts.service';
 import { CategoryBudgetAlert } from './entities/category-budget-alert.entity';
 import { CategoryBudget } from './entities/category-budget.entity';
@@ -56,12 +58,17 @@ describe('BudgetAlertsService', () => {
         ? jest.fn().mockRejectedValue(sendError)
         : jest.fn().mockResolvedValue(undefined),
     };
+    const notifications = {
+      notify: jest.fn().mockResolvedValue(true),
+      removeByDedupeKeys: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new BudgetAlertsService(
       budgetsRepository as unknown as Repository<CategoryBudget>,
       alertsRepository as unknown as Repository<CategoryBudgetAlert>,
       email as unknown as EmailService,
+      notifications as unknown as NotificationsService,
     );
-    return { service, query, builder, alertsRepository, email };
+    return { service, query, builder, alertsRepository, email, notifications };
   }
 
   it('no avisa si el gasto del mes no supera el presupuesto', async () => {
@@ -150,12 +157,83 @@ describe('BudgetAlertsService', () => {
     expect(ctx.query).not.toHaveBeenCalled();
   });
 
-  it('resetAlert borra el aviso del mes', async () => {
+  it('resetAlert borra el aviso del mes y sus notificaciones', async () => {
     const ctx = setup({ spent: 0 });
     await ctx.service.resetAlert('budget-1', '2026-11');
     expect(ctx.alertsRepository.delete).toHaveBeenCalledWith({
       budgetId: 'budget-1',
       period: '2026-11',
+    });
+    expect(ctx.notifications.removeByDedupeKeys).toHaveBeenCalledWith([
+      'budget-exceeded:budget-1:2026-11',
+      'budget-near:budget-1:2026-11',
+    ]);
+  });
+
+  describe('notificaciones en la app', () => {
+    const money = (value: number) =>
+      value.toLocaleString('es-CO', { style: 'currency', currency: 'COP' });
+
+    it('al superarlo notifica BUDGET_EXCEEDED con categoría, gasto y tope', async () => {
+      const ctx = setup({ spent: 400000 });
+      await ctx.service.checkExpense('user-1', 'cat-mercado', '2026-11-05');
+      expect(ctx.notifications.notify).toHaveBeenCalledTimes(1);
+      const [userId, input] = ctx.notifications.notify.mock.calls[0] as [
+        string,
+        {
+          type: NotificationType;
+          body: string;
+          link: string;
+          dedupeKey: string;
+        },
+      ];
+      expect(userId).toBe('user-1');
+      expect(input.type).toBe(NotificationType.BUDGET_EXCEEDED);
+      expect(input.dedupeKey).toBe('budget-exceeded:budget-1:2026-11');
+      expect(input.link).toBe('/presupuestos');
+      expect(input.body).toContain('Mercado');
+      expect(input.body).toContain(money(400000));
+      expect(input.body).toContain(money(350000));
+    });
+
+    it('notifica aunque el correo falle', async () => {
+      const ctx = setup({ spent: 400000, sendError: new Error('Brevo caído') });
+      await ctx.service.checkExpense('user-1', 'cat-mercado', '2026-11-05');
+      expect(ctx.notifications.notify).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ type: NotificationType.BUDGET_EXCEEDED }),
+      );
+    });
+
+    it('desde el 80 % notifica BUDGET_NEAR, solo en la app', async () => {
+      const ctx = setup({ spent: 280000 });
+      await ctx.service.checkExpense('user-1', 'cat-mercado', '2026-11-05');
+      expect(ctx.notifications.notify).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({
+          type: NotificationType.BUDGET_NEAR,
+          dedupeKey: 'budget-near:budget-1:2026-11',
+          link: '/presupuestos',
+        }),
+      );
+      expect(ctx.builder.insert).not.toHaveBeenCalled();
+      expect(ctx.email.send).not.toHaveBeenCalled();
+    });
+
+    it('justo en el tope sigue siendo "cerca", no excedido', async () => {
+      const ctx = setup({ spent: 350000 });
+      await ctx.service.checkExpense('user-1', 'cat-mercado', '2026-11-05');
+      expect(ctx.notifications.notify).toHaveBeenCalledTimes(1);
+      expect(ctx.notifications.notify).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ type: NotificationType.BUDGET_NEAR }),
+      );
+    });
+
+    it('por debajo del 80 % no notifica', async () => {
+      const ctx = setup({ spent: 279999 });
+      await ctx.service.checkExpense('user-1', 'cat-mercado', '2026-11-05');
+      expect(ctx.notifications.notify).not.toHaveBeenCalled();
     });
   });
 });

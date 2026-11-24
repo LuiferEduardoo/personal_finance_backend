@@ -6,6 +6,7 @@ import { CategorizationModule } from '../categorization/categorization.module';
 import { CategoriesModule } from '../categories/categories.module';
 import { InvestmentsModule } from '../investments/investments.module';
 import { MarketDataModule } from '../market-data/market-data.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { SecretBox } from '../common/crypto/secret-box';
@@ -41,6 +42,7 @@ import { XtbOrderConfirmationsService } from './xtb-order-confirmations.service'
     CategorizationModule,
     InvestmentsModule,
     MarketDataModule,
+    NotificationsModule,
     PaymentMethodsModule,
     TransactionsModule,
   ],

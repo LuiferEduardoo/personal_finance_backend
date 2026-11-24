@@ -18,6 +18,7 @@ import { MailMessage, MailMessageStatus } from './entities/mail-message.entity';
 import { MailSender, MailSenderKind } from './entities/mail-sender.entity';
 import { GmailApi, GmailClientService } from './gmail/gmail-client.service';
 import { MailConnectionsService } from './mail-connections.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { MailIngestionService } from './mail-ingestion.service';
 import { MailSendersService } from './mail-senders.service';
 import { XtbOrderConfirmationsService } from './xtb-order-confirmations.service';
@@ -167,6 +168,7 @@ function setup(
     transactionsService as unknown as InvestmentTransactionsService,
     instrumentsService as unknown as InstrumentsService,
   );
+  const notifications = { notify: jest.fn().mockResolvedValue(true) };
   const ingestion = new MailIngestionService(
     messagesRepository as unknown as Repository<MailMessage>,
     invoicesRepository as unknown as Repository<MailInvoice>,
@@ -178,6 +180,7 @@ function setup(
     {} as CategoryClassifierService,
     queue as unknown as CategorizationQueue,
     xtb,
+    notifications as unknown as NotificationsService,
   );
   const ingest = (target = options.sender ?? sender) =>
     ingestion.ingest(
@@ -195,6 +198,7 @@ function setup(
     transactionsService,
     instrumentsService,
     queue,
+    notifications,
   };
 }
 
@@ -299,6 +303,14 @@ ${row(3, '9000000003', 'CSPX.UK')}
     expect(
       JSON.stringify(ctx.messagesRepository.update.mock.calls),
     ).not.toContain(PASSWORD);
+    // también avisa en la app, sin la contraseña
+    expect(ctx.notifications.notify).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({ link: '/settings/mail' }),
+    );
+    expect(JSON.stringify(ctx.notifications.notify.mock.calls)).not.toContain(
+      PASSWORD,
+    );
     expect(ctx.transactionsService.createBatch).not.toHaveBeenCalled();
   });
 

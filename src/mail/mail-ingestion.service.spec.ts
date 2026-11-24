@@ -9,6 +9,8 @@ import {
   ClassificationResult,
   ClassifyInput,
 } from '../categorization/category-classifier.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ExpensesService } from '../transactions/expenses.service';
 import { MailConnection } from './entities/mail-connection.entity';
 import { MailInvoice } from './entities/mail-invoice.entity';
@@ -60,6 +62,7 @@ function setup(options: {
   createExpense?: jest.Mock;
   classify?: jest.Mock;
   articleCategories?: (string | null)[];
+  notify?: jest.Mock;
 }) {
   const messages = insertBuilder([
     options.messageClaimed === false ? [] : [{ id: 'msg-row-1' }],
@@ -75,6 +78,10 @@ function setup(options: {
       gmailMessageId: 'gmail-1',
     }),
     update: jest.fn(),
+    findOne: jest.fn().mockResolvedValue({
+      id: 'msg-row-1',
+      updatedAt: new Date('2026-09-22T23:00:00Z'),
+    }),
   };
   const invoicesRepository = {
     createQueryBuilder: () => invoices,
@@ -124,6 +131,9 @@ function setup(options: {
   const xtbOrders = { record: jest.fn() };
   // la cola real: los tests esperan a que termine con queue.idle()
   const queue = new CategorizationQueue();
+  const notifications = {
+    notify: options.notify ?? jest.fn().mockResolvedValue(true),
+  };
 
   const service = new MailIngestionService(
     messagesRepository as unknown as Repository<MailMessage>,
@@ -136,6 +146,7 @@ function setup(options: {
     classifier as unknown as CategoryClassifierService,
     queue,
     xtbOrders as unknown as XtbOrderConfirmationsService,
+    notifications as unknown as NotificationsService,
   );
   return {
     classifier,
@@ -147,6 +158,7 @@ function setup(options: {
     articlesService,
     expensesService,
     xtbOrders,
+    notifications,
   };
 }
 
@@ -283,6 +295,52 @@ describe('MailIngestionService.ingest', () => {
       status: MailMessageStatus.FAILED,
       error: 'Cupo insuficiente',
     });
+  });
+
+  it('un fallo notifica en la app con el remitente, el motivo y una clave por intento', async () => {
+    const ctx = setup({
+      createExpense: jest
+        .fn()
+        .mockRejectedValue(new BadRequestException('Cupo insuficiente')),
+    });
+    await ctx.service.ingest(connection, api, 'gmail-1', senders);
+
+    expect(ctx.notifications.notify).toHaveBeenCalledTimes(1);
+    const [userId, input] = ctx.notifications.notify.mock.calls[0] as [
+      string,
+      {
+        type: string;
+        title: string;
+        body: string;
+        link: string;
+        dedupeKey: string;
+      },
+    ];
+    expect(userId).toBe('user-1');
+    expect(input.type).toBe(NotificationType.MAIL_MESSAGE_FAILED);
+    expect(input.link).toBe('/settings/mail');
+    expect(input.title).toContain('D1');
+    expect(input.body).toContain('Cupo insuficiente');
+    // el updated_at que dejó este fallo identifica el intento
+    expect(input.dedupeKey).toBe(
+      `mail-failed:msg-row-1:${new Date('2026-09-22T23:00:00Z').getTime()}`,
+    );
+  });
+
+  it('si notificar falla, el correo igual queda en FAILED', async () => {
+    const ctx = setup({
+      createExpense: jest.fn().mockRejectedValue(new Error('Sin cupo')),
+      notify: jest.fn().mockRejectedValue(new Error('BD caída')),
+    });
+    expect(await ctx.service.ingest(connection, api, 'gmail-1', senders)).toBe(
+      MailMessageStatus.FAILED,
+    );
+  });
+
+  it('un correo registrado no notifica', async () => {
+    const ctx = setup({});
+    await ctx.service.ingest(connection, api, 'gmail-1', senders);
+    expect(ctx.notifications.notify).not.toHaveBeenCalled();
   });
 });
 

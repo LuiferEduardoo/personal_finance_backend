@@ -8,6 +8,8 @@ import { LessThanOrEqual, Repository } from 'typeorm';
 import { ArticlesService } from '../articles/articles.service';
 import { Recurrence } from '../common/enums/recurrence.enum';
 import { resolveDiscount } from '../common/discount';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ExpenseItemInput } from '../transactions/dto/expense-item.input';
 import { ExpensesService } from '../transactions/expenses.service';
 import { CreateRecurringExpenseInput } from './dto/create-recurring-expense.input';
@@ -38,6 +40,7 @@ export class RecurringExpensesService {
     private readonly recurringItemsRepository: Repository<RecurringExpenseItem>,
     private readonly articlesService: ArticlesService,
     private readonly expensesService: ExpensesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   findAll(
@@ -125,7 +128,9 @@ export class RecurringExpensesService {
   /**
    * Materializa todos los gastos recurrentes vencidos hasta `today` (inclusive).
    * Devuelve cuántos gastos se generaron. Se llama desde el cron y desde la
-   * mutation manual.
+   * mutation manual. Solo la corrida global (sin `userId`, la del cron) deja
+   * una notificación por usuario con lo generado: quien dispara la mutation ya
+   * ve el resultado en la respuesta.
    */
   async runDue(
     today = new Date().toISOString().substring(0, 10),
@@ -141,6 +146,7 @@ export class RecurringExpensesService {
     });
 
     let generated = 0;
+    const generatedByUser = new Map<string, number>();
     for (const recurring of due) {
       // genera cada ocurrencia pendiente (soporta puesta al día)
       while (
@@ -150,6 +156,10 @@ export class RecurringExpensesService {
       ) {
         await this.materialize(recurring);
         generated += 1;
+        generatedByUser.set(
+          recurring.userId,
+          (generatedByUser.get(recurring.userId) ?? 0) + 1,
+        );
         recurring.nextRunOn = this.addInterval(
           recurring.nextRunOn,
           recurring.recurrence,
@@ -160,7 +170,31 @@ export class RecurringExpensesService {
       }
       await this.recurringRepository.save(recurring);
     }
+    if (!userId) {
+      await this.notifyGenerated(generatedByUser, today);
+    }
     return generated;
+  }
+
+  // una por usuario y día: si el job corre dos veces, la segunda se ignora.
+  // notifyMany nunca lanza.
+  private async notifyGenerated(
+    generatedByUser: Map<string, number>,
+    today: string,
+  ): Promise<void> {
+    await this.notifications.notifyMany(
+      [...generatedByUser].map(([userId, count]) => ({
+        userId,
+        type: NotificationType.RECURRING_EXPENSES_GENERATED,
+        title: 'Gastos recurrentes registrados',
+        body:
+          count === 1
+            ? 'Se registró 1 gasto recurrente'
+            : `Se registraron ${count} gastos recurrentes`,
+        link: '/movimientos',
+        dedupeKey: `recurring:${userId}:${today}`,
+      })),
+    );
   }
 
   private async materialize(recurring: RecurringExpense): Promise<void> {

@@ -11,6 +11,8 @@ import { Article, ArticleType } from '../articles/entities/article.entity';
 import { CategorizationQueue } from '../categorization/categorization-queue';
 import { CategoryClassifierService } from '../categorization/category-classifier.service';
 import { roundAmount } from '../common/discount';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateExpenseInput } from '../transactions/dto/create-expense.input';
 import { ExpenseItemInput } from '../transactions/dto/expense-item.input';
 import { Expense } from '../transactions/entities/expense.entity';
@@ -93,6 +95,7 @@ export class MailIngestionService {
     private readonly classifier: CategoryClassifierService,
     private readonly categorizationQueue: CategorizationQueue,
     private readonly xtbOrders: XtbOrderConfirmationsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // bitácora de correos procesados, del más reciente al más antiguo
@@ -277,7 +280,49 @@ export class MailIngestionService {
       this.logger.warn(
         `No se pudo registrar el correo ${message.gmailMessageId}: ${reason}`,
       );
-      return this.finish(message, MailMessageStatus.FAILED, reason);
+      const status = await this.finish(
+        message,
+        MailMessageStatus.FAILED,
+        reason,
+      );
+      await this.notifyFailure(message, sender, reason);
+      return status;
+    }
+  }
+
+  /**
+   * Avisa en la app que el correo falló. La dedupeKey lleva el updated_at que
+   * dejó este fallo: cada intento fallido (el primero y cada retryMailMessage)
+   * escribe uno distinto y notifica de nuevo, mientras que repetir el aviso del
+   * mismo intento genera la misma clave. Nunca lanza.
+   */
+  private async notifyFailure(
+    message: MailMessage,
+    sender: MailSender,
+    reason: string,
+  ): Promise<void> {
+    try {
+      const failed = await this.messagesRepository.findOne({
+        where: { id: message.id },
+        select: { id: true, updatedAt: true },
+      });
+      const attempt = failed?.updatedAt?.getTime() ?? Date.now();
+      const from = sender.merchantName || sender.emailAddress;
+      const trimmed = reason.trim().replace(/\.+$/, '');
+      const shortReason =
+        trimmed.length > 200 ? `${trimmed.slice(0, 197)}...` : trimmed;
+      await this.notifications.notify(message.userId, {
+        type: NotificationType.MAIL_MESSAGE_FAILED,
+        title: `No se pudo registrar un correo de ${from}`,
+        body: `${message.subject ? `"${message.subject}": ` : ''}${shortReason}. Revísalo y reprocésalo desde la configuración del correo.`,
+        link: '/settings/mail',
+        dedupeKey: `mail-failed:${message.id}:${attempt}`,
+      });
+    } catch (error) {
+      this.logger.error(
+        `No se pudo notificar el fallo del correo ${message.id}`,
+        error,
+      );
     }
   }
 

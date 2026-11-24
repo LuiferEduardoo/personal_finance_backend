@@ -48,6 +48,8 @@ const ALLOWED_API_SCOPES = new Set<ApiScope>([
   ApiScope.LOANS_READ,
   ApiScope.LOANS_WRITE,
   ApiScope.MARKET_DATA_READ,
+  ApiScope.NOTIFICATIONS_READ,
+  ApiScope.NOTIFICATIONS_WRITE,
 ]);
 
 @Injectable()
