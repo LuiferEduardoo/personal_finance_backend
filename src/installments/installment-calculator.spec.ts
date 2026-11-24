@@ -1,4 +1,8 @@
-import { addMonths, calculateInstallments } from './installment-calculator';
+import {
+  addMonths,
+  calculateInstallments,
+  roundToCents,
+} from './installment-calculator';
 
 describe('calculateInstallments', () => {
   it('distribuye el capital sin interés y conserva los centavos', () => {
@@ -33,5 +37,15 @@ describe('calculateInstallments', () => {
 describe('addMonths', () => {
   it('ajusta el día al final de los meses cortos', () => {
     expect(addMonths('2024-01-31', 1)).toBe('2024-02-29');
+  });
+});
+
+describe('roundToCents', () => {
+  it('redondea igual que la tabla de cuotas', () => {
+    expect(roundToCents(1.005)).toBe(
+      calculateInstallments(1.005, 1, 0, '2026-01-15')[0].amount,
+    );
+    expect(roundToCents(0.1 + 0.2)).toBe(0.3);
+    expect(roundToCents(99.999)).toBe(100);
   });
 });

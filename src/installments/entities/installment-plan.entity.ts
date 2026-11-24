@@ -60,6 +60,18 @@ export class InstallmentPlan {
   })
   totalAmount: number;
 
+  // capital de la compra (sin intereses): lo que se edita y de donde se
+  // recalcula la tabla al cambiar cuotas o tasa
+  @Field(() => Float)
+  @Column({
+    name: 'principal_amount',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    transformer: new NumericTransformer(),
+  })
+  principalAmount: number;
+
   @Field(() => Int)
   @Column({ name: 'installment_count', type: 'smallint' })
   installmentCount: number;

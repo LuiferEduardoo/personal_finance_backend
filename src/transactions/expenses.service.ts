@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
   FindOptionsWhere,
+  In,
   LessThanOrEqual,
   MoreThanOrEqual,
   DataSource,
@@ -18,7 +19,10 @@ import { BudgetAlertsService } from '../budgets/budget-alerts.service';
 import { Article, ArticleType } from '../articles/entities/article.entity';
 import { resolveDiscount } from '../common/discount';
 import { Recurrence } from '../common/enums/recurrence.enum';
-import { calculateInstallments } from '../installments/installment-calculator';
+import {
+  calculateInstallments,
+  roundToCents,
+} from '../installments/installment-calculator';
 import { InstallmentPlan } from '../installments/entities/installment-plan.entity';
 import { Installment } from '../installments/entities/installment.entity';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
@@ -184,9 +188,8 @@ export class ExpensesService {
   async update(userId: string, input: UpdateExpenseInput): Promise<Expense> {
     const expense = await this.findOne(input.id, userId);
     if (expense.planId) {
-      throw new BadRequestException(
-        'Las compras a cuotas no se pueden editar parcialmente; elimínala y créala de nuevo',
-      );
+      // cualquier cuota edita la compra entera (el plan)
+      return this.updateInstallmentPurchase(userId, expense, input);
     }
     // estado previo para ajustar el saldo
     const prevAccountId = expense.paymentMethodId;
@@ -225,7 +228,7 @@ export class ExpensesService {
         );
       }
     } else if (amount !== undefined) {
-      expense.amount = amount;
+      expense.amount = roundToCents(amount);
     }
     if (categoryId !== undefined) {
       expense.categoryId = categoryId;
@@ -263,6 +266,223 @@ export class ExpensesService {
     const result = await this.findOne(id, userId);
     this.checkBudgets(userId, result);
     return result;
+  }
+
+  /**
+   * Edita una compra a cuotas completa desde cualquiera de sus gastos. En el
+   * input, `description` es la base (sin " (n/N)"), `amount`/`items` el
+   * capital y `occurredOn` la fecha de compra. Siempre recalcula la tabla con
+   * `calculateInstallments` y actualiza en sitio las cuotas cuya secuencia
+   * sigue existiendo (conserva los ids, a los que apuntan inventario y
+   * correo), borra las sobrantes y crea las que falten: el resultado es igual
+   * a crearla de nuevo. Como nada cambia aún el estado de las cuotas, se
+   * puede regenerar todo el plan. Los ítems, igual que al crear, solo dan el
+   * importe (no se guardan en las cuotas) y no re-disparan el inventario.
+   */
+  private async updateInstallmentPurchase(
+    userId: string,
+    expense: Expense,
+    input: UpdateExpenseInput,
+  ): Promise<Expense> {
+    const {
+      items,
+      amount,
+      categoryId,
+      accountId,
+      installmentCount,
+      monthlyInterestRate,
+      occurredOn,
+      description,
+      recurrence,
+      merchant,
+      notes,
+      receiptUrl,
+      currency,
+      exchangeRate,
+    } = input;
+    if (recurrence != null && recurrence !== Recurrence.ONCE) {
+      throw new BadRequestException(
+        'Una compra a cuotas no puede ser además un gasto recurrente',
+      );
+    }
+    if (accountId === null) {
+      throw new BadRequestException(
+        'Una compra a cuotas requiere una cuenta (accountId)',
+      );
+    }
+
+    const plan = await this.installmentPlansRepository.findOne({
+      where: { id: expense.planId!, userId },
+    });
+    if (!plan) {
+      throw new NotFoundException(
+        `Compra a cuotas ${expense.planId} no encontrada`,
+      );
+    }
+    const oldExpenses = (
+      await this.expensesRepository.find({
+        where: { planId: plan.id, userId },
+        relations: { installment: true },
+      })
+    ).sort(
+      (a, b) =>
+        (a.installment?.sequenceNumber ?? 0) -
+          (b.installment?.sequenceNumber ?? 0) ||
+        a.occurredOn.localeCompare(b.occurredOn),
+    );
+
+    const count = installmentCount ?? plan.installmentCount;
+    const rate = monthlyInterestRate ?? plan.monthlyRate;
+    this.validateInstallmentInput(count, rate);
+    if (accountId !== undefined) {
+      await this.accountsService.assertOwned(accountId, userId);
+    }
+    const prevAccountId = plan.paymentMethodId;
+    const nextAccountId = accountId ?? prevAccountId;
+
+    let principal = plan.principalAmount;
+    let resolvedItems: ResolvedItem[] | undefined;
+    if (items != null) {
+      resolvedItems = await this.resolveItems(userId, items);
+      principal = this.resolveAmount(amount ?? undefined, resolvedItems);
+    } else if (amount != null) {
+      principal = roundToCents(amount);
+    }
+    const first = oldExpenses[0] ?? expense;
+    let nextCategoryId: string | null =
+      categoryId !== undefined ? categoryId : first.categoryId;
+    if (categoryId === undefined && resolvedItems) {
+      nextCategoryId = this.resolveCategory(nextCategoryId, resolvedItems);
+    }
+    const purchaseDate = occurredOn ?? plan.purchaseDate;
+    const baseDescription = description ?? plan.description;
+    // campos que comparten todas las cuotas
+    const shared = {
+      paymentMethodId: nextAccountId,
+      categoryId: nextCategoryId,
+      merchant: merchant !== undefined ? merchant : first.merchant,
+      notes: notes !== undefined ? notes : first.notes,
+      receiptUrl: receiptUrl !== undefined ? receiptUrl : first.receiptUrl,
+      currency: currency ?? first.currency,
+      exchangeRate: exchangeRate ?? first.exchangeRate,
+    };
+
+    const schedule = calculateInstallments(
+      principal,
+      count,
+      rate,
+      purchaseDate,
+    );
+    const toCents = (value: number) => Math.round(value * 100);
+    const newTotal =
+      schedule.reduce((sum, part) => sum + toCents(part.amount), 0) / 100;
+    const oldTotal =
+      oldExpenses.reduce((sum, item) => sum + toCents(item.amount), 0) / 100;
+    const moveBalance =
+      nextAccountId !== prevAccountId ||
+      toCents(newTotal) !== toCents(oldTotal);
+
+    await this.dataSource.transaction(async (manager) => {
+      // primero el saldo: si no hay cupo, nada se escribe (y se revierte)
+      if (moveBalance) {
+        await this.accountsService.adjustBalance(
+          prevAccountId,
+          oldTotal,
+          manager,
+        );
+        await this.accountsService.assertCreditAvailable(
+          nextAccountId,
+          newTotal,
+          manager,
+        );
+        await this.accountsService.adjustBalance(
+          nextAccountId,
+          -newTotal,
+          manager,
+        );
+      }
+
+      await manager.update(InstallmentPlan, plan.id, {
+        paymentMethodId: nextAccountId,
+        description: baseDescription,
+        totalAmount: newTotal,
+        principalAmount: principal,
+        installmentCount: count,
+        monthlyRate: rate,
+        purchaseDate,
+        firstDueDate: purchaseDate,
+      });
+
+      const surplus = oldExpenses.slice(count);
+      if (surplus.length) {
+        await manager.delete(Expense, { id: In(surplus.map((e) => e.id)) });
+        const surplusInstallments = surplus
+          .map((e) => e.installmentId)
+          .filter((value): value is string => value != null);
+        if (surplusInstallments.length) {
+          await manager.delete(Installment, { id: In(surplusInstallments) });
+        }
+      }
+
+      for (const [index, part] of schedule.entries()) {
+        const fields = {
+          ...shared,
+          description: `${baseDescription} (${part.sequenceNumber}/${count})`,
+          amount: part.amount,
+          occurredOn: part.dueDate,
+        };
+        const current = oldExpenses[index];
+        if (current?.installmentId) {
+          await manager.update(Installment, current.installmentId, part);
+          await manager.update(Expense, current.id, fields);
+          continue;
+        }
+        const installment = await manager.save(
+          Installment,
+          this.installmentsRepository.create({ planId: plan.id, ...part }),
+        );
+        if (current) {
+          await manager.update(Expense, current.id, {
+            ...fields,
+            installmentId: installment.id,
+          });
+          continue;
+        }
+        await manager.save(
+          Expense,
+          this.expensesRepository.create({
+            ...fields,
+            userId,
+            planId: plan.id,
+            installmentId: installment.id,
+            recurrence: Recurrence.ONCE,
+          }),
+        );
+      }
+    });
+
+    // presupuestos de los meses que tocaba y de los que toca ahora
+    const checks = new Map<string, [string | null, string]>();
+    for (const old of oldExpenses) {
+      checks.set(`${old.categoryId}|${old.occurredOn.substring(0, 7)}`, [
+        old.categoryId,
+        old.occurredOn,
+      ]);
+    }
+    for (const part of schedule) {
+      checks.set(`${nextCategoryId}|${part.dueDate.substring(0, 7)}`, [
+        nextCategoryId,
+        part.dueDate,
+      ]);
+    }
+    for (const [category, date] of checks.values()) {
+      this.budgetAlerts.scheduleExpenseCheck(userId, category, date);
+    }
+
+    // la cuota editada si sigue existiendo; si no, la primera
+    const keepsEdited =
+      oldExpenses.findIndex((e) => e.id === expense.id) < count;
+    return this.findOne(keepsEdited ? expense.id : first.id, userId);
   }
 
   /**
@@ -391,7 +611,10 @@ export class ExpensesService {
       input.monthlyInterestRate,
       input.occurredOn,
     );
-    const financedTotal = schedule.reduce((sum, item) => sum + item.amount, 0);
+    // en centavos: una suma de floats (0.1 + 0.2) falsearía la validación del cupo
+    const financedTotal =
+      schedule.reduce((sum, item) => sum + Math.round(item.amount * 100), 0) /
+      100;
     await this.accountsService.assertCreditAvailable(
       input.accountId,
       financedTotal,
@@ -406,6 +629,7 @@ export class ExpensesService {
             paymentMethodId: input.accountId,
             description: input.description,
             totalAmount: financedTotal,
+            principalAmount: input.amount,
             installmentCount: input.installmentCount,
             monthlyRate: input.monthlyInterestRate,
             purchaseDate: input.occurredOn,
@@ -502,10 +726,12 @@ export class ExpensesService {
     items: ResolvedItem[],
   ): number {
     if (items.length) {
-      return items.reduce(
-        (sum, r) =>
-          sum + r.input.unitPrice * (r.input.quantity ?? 1) - r.discount,
-        0,
+      return roundToCents(
+        items.reduce(
+          (sum, r) =>
+            sum + r.input.unitPrice * (r.input.quantity ?? 1) - r.discount,
+          0,
+        ),
       );
     }
     if (amount == null) {
@@ -513,7 +739,7 @@ export class ExpensesService {
         'El gasto requiere un importe (amount) o al menos un ítem',
       );
     }
-    return amount;
+    return roundToCents(amount);
   }
 
   // con un solo ítem se hereda la categoría del artículo si no se envió

@@ -9,6 +9,11 @@ export interface InstallmentBreakdown {
 const toCents = (amount: number): number => Math.round(amount * 100);
 const fromCents = (amount: number): number => amount / 100;
 
+// redondea a centavos igual que la tabla, para que lo guardado (numeric(14,2))
+// coincida con lo que se usó en el cálculo
+export const roundToCents = (amount: number): number =>
+  fromCents(toCents(amount));
+
 export function addMonths(date: string, months: number): string {
   const [year, month, day] = date.split('-').map(Number);
   const target = new Date(Date.UTC(year, month - 1 + months, 1));
